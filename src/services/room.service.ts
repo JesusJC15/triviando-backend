@@ -1,0 +1,1 @@
+// scaffold: room.service.ts

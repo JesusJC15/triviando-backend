@@ -1,0 +1,1 @@
+// scaffold: history.model.ts

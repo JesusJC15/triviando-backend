@@ -1,0 +1,1 @@
+// scaffold: error.middleware.ts

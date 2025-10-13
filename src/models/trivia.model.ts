@@ -1,0 +1,1 @@
+// scaffold: trivia.model.ts

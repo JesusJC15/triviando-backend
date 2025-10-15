@@ -1,0 +1,194 @@
+openapi: 3.1.0
+info:
+  title: TriviAndo API
+  version: 1.0.0
+  description: >
+    API del proyecto **TrivIAndo**, desarrollada para la materia *Arquitectura de Software (ARSW)*.  
+    Permite registro de usuarios, autenticación segura y generación automática de trivias mediante IA.
+  contact:
+    name: Pokesaurios
+    email: pokesaurios@triviando.com
+servers:
+  - url: http://localhost:4000/api
+    description: Servidor local de desarrollo
+
+tags:
+  - name: Autenticación
+    description: Endpoints de registro e inicio de sesión
+  - name: Trivias
+    description: Generación y gestión de trivias con IA
+
+paths:
+  /auth/register:
+    post:
+      tags:
+        - Autenticación
+      summary: Registro de usuario
+      description: Registra un nuevo jugador en el sistema.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                nombre:
+                  type: string
+                  example: Juan Pérez
+                correo:
+                  type: string
+                  example: juanperez@email.com
+                contraseña:
+                  type: string
+                  example: Password123!
+      responses:
+        "201":
+          description: Usuario registrado correctamente.
+        "400":
+          description: Correo ya registrado o datos inválidos.
+
+  /auth/login:
+    post:
+      tags:
+        - Autenticación
+      summary: Inicio de sesión
+      description: Inicia sesión con correo y contraseña válidos.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                correo:
+                  type: string
+                  example: juanperez@email.com
+                contraseña:
+                  type: string
+                  example: Password123!
+      responses:
+        "200":
+          description: Sesión iniciada correctamente.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                    example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        "401":
+          description: Credenciales incorrectas.
+
+  /trivia/generate:
+    post:
+      tags:
+        - Trivias
+      summary: Generar trivia con inteligencia artificial
+      description: >
+        Genera automáticamente una trivia a partir de un tema utilizando la API de IA (OpenAI).  
+        Las preguntas incluyen dificultad, opciones y una respuesta correcta.  
+        **Nota:** Este endpoint requiere un token JWT válido.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tema:
+                  type: string
+                  description: Tema sobre el cual generar la trivia.
+                  example: Historia de Colombia
+                cantidadPreguntas:
+                  type: integer
+                  description: Número de preguntas a generar (mínimo 5).
+                  example: 6
+                idioma:
+                  type: string
+                  description: Idioma de la trivia.
+                  enum: [es, en, fr]
+                  example: es
+      responses:
+        "201":
+          description: Trivia generada exitosamente.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Trivia generada exitosamente
+                  triviaId:
+                    type: string
+                    example: 670cfbc276a1425b3d8a6712
+                  preguntas:
+                    type: integer
+                    example: 6
+              examples:
+                ejemploTrivia:
+                  summary: Ejemplo de trivia generada
+                  value:
+                    message: Trivia generada exitosamente
+                    triviaId: 670cfbc276a1425b3d8a6712
+                    preguntas: 6
+        "400":
+          description: Tema inválido o vacío.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Debes ingresar un tema válido
+        "500":
+          description: Error interno o respuesta inválida de la IA.
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Trivia:
+      type: object
+      properties:
+        tema:
+          type: string
+          example: Historia de Colombia
+        idioma:
+          type: string
+          example: es
+        preguntas:
+          type: array
+          items:
+            type: object
+            properties:
+              enunciado:
+                type: string
+                example: ¿Quién fue el libertador de Colombia?
+              opciones:
+                type: array
+                items:
+                  type: string
+                example:
+                  - Simón Bolívar
+                  - Santander
+                  - Nariño
+                  - Sucre
+              respuestaCorrecta:
+                type: string
+                example: Simón Bolívar
+              dificultad:
+                type: string
+                enum: [fácil, media, difícil]
+                example: fácil
+              explicacion:
+                type: string
+                example: Bolívar lideró la independencia de Colombia en 1819.

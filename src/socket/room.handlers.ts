@@ -1,125 +1,107 @@
-// src/socket/room.handlers.ts
 import { Server, Socket } from "socket.io";
+import { Room, generateUniqueRoomCode } from "../models/room.model";
+import { Trivia } from "../models/trivia.model";
 import User from "../models/user.model";
-import { Room } from "../models/room.model";
-import redis from "../config/redis";
-import {
-  isDuplicateEvent,
-  getRoomState,
-  invalidateRoomCache,
-} from "./utils";
-import {
-  setPlayerActive,
-  removePlayerActive,
-  getActivePlayers,
-  refreshPlayerHeartbeat,
-} from "./presence.utils";
+import { generateQuestions } from "../services/aiGenerator.service";
+import { addChatMessage, getChatHistory } from "../utils/redisChat";
 
 export function registerRoomHandlers(io: Server, socket: Socket) {
-  console.log(`🟢 User Connected: ${socket.id}`);
-
   let currentRoom: string | null = null;
-  let currentUserId: string | null = null;
 
-  // CREATE
-  socket.on("room:create", async ({ userId }, ack) => {
+  // ───── CREAR SALA + TRIVIA ─────
+  socket.on("room:create", async ({ topic, maxPlayers = 4, quantity = 5 }, ack) => {
     try {
-      const userDoc = await User.findById(userId).select("name").lean();
-      const code = Math.random().toString(36).substring(2, 7).toUpperCase();
+      const user = socket.data.user;
+      if (!topic || topic.trim() === "") return ack?.({ ok: false, message: "Topic required" });
+
+      // 1️⃣ Crear trivia automáticamente
+      const questions = await generateQuestions(topic, quantity);
+      const trivia = new Trivia({ topic, questions, creator: user.id });
+      await trivia.save();
+
+      // 2️⃣ Generar código único de sala
+      const code = await generateUniqueRoomCode();
+
+      // 3️⃣ Obtener nombre del usuario
+      const userDoc = await User.findById(user.id).select("name").lean();
+      const player = { userId: user.id, name: userDoc?.name || "Anonymous", joinedAt: new Date() };
+
+      // 4️⃣ Crear sala
       const room = new Room({
         code,
-        hostId: userId,
-        players: [{ userId, name: userDoc?.name || "Anonymous", joinedAt: new Date() }],
+        hostId: user.id,
+        triviaId: trivia._id,
+        maxPlayers,
+        players: [player],
       });
       await room.save();
-      await redis.setex(`room:${room.code}:state`, 120, JSON.stringify(room));
-
-      currentRoom = code;
-      currentUserId = userId;
-      await setPlayerActive(code, userId);
 
       socket.join(code);
-      socket.emit("room:joined", { code, players: room.players });
-      ack?.({ ok: true, code });
+      currentRoom = code;
+
+      // 5️⃣ Devolver estado al host
+      ack?.({
+        ok: true,
+        room: {
+          code,
+          roomId: room._id,
+          triviaId: trivia._id,
+          maxPlayers,
+          host: player.name,
+          players: room.players,
+          chatHistory: [],
+        },
+      });
+
+      // 6️⃣ Notificar a otros sockets (si aplica)
+      io.to(code).emit("room:update", { event: "roomCreated", code, roomId: room._id });
     } catch (err: any) {
       console.error("room:create error:", err);
       ack?.({ ok: false, error: err.message });
     }
   });
 
-  // JOIN
-  socket.on("room:join", async ({ code, userId, eventId }, ack) => {
+  // ───── UNIRSE A SALA ─────
+  socket.on("room:join", async ({ code }, ack) => {
     try {
-      if (await isDuplicateEvent(code, eventId)) return ack?.({ ok: true, message: "Duplicate event ignored" });
-
-      const room = await getRoomState(code);
+      const user = socket.data.user;
+      const room = await Room.findOne({ code });
       if (!room) return ack?.({ ok: false, message: "Room not found" });
 
-      const userDoc = await User.findById(userId).select("name").lean();
-
-      // push objeto player si no existe
-      const exists = room.players.find((p: any) => p.userId.toString() === userId);
+      // Agregar jugador si no existe
+      const exists = room.players.some((p) => p.userId.toString() === user.id);
       if (!exists) {
-        await Room.updateOne(
-          { code },
-          { $push: { players: { userId, name: userDoc?.name || "Anonymous", joinedAt: new Date() } } }
-        );
-        await invalidateRoomCache(code);
+        room.players.push({ userId: user.id, name: user.name, joinedAt: new Date() });
+        await room.save();
       }
 
-      currentRoom = code;
-      currentUserId = userId;
-      await setPlayerActive(code, userId);
-
       socket.join(code);
+      currentRoom = code;
 
-      // chat history (últimos 50, cronológico)
-      const chatKey = `room:${code}:chat`;
-      const chatMessages = await redis.lrange(chatKey, 0, 49);
-      const chatHistory = chatMessages.map((m) => JSON.parse(m)).reverse();
+      const chatHistory = await getChatHistory(code);
 
-      const activePlayers = await getActivePlayers(code);
-
-      // enviar estado inicial SOLO al que entró
-      socket.emit("room:init", {
-        code,
-        players: exists ? room.players : [...room.players, { userId, name: userDoc?.name || "Anonymous" }],
-        activePlayers,
-        chatHistory,
-      });
-
-      // notificar a la sala
+      // Notificar a todos en la sala
       io.to(code).emit("room:update", {
         event: "playerJoined",
-        player: { userId, name: userDoc?.name || "Anonymous" },
-        activePlayers,
+        player: { id: user.id, name: user.name },
+        players: room.players,
       });
 
-      ack?.({ ok: true, code });
+      // Enviar estado solo al que se unió
+      ack?.({ ok: true, room: { code, players: room.players, chatHistory } });
     } catch (err: any) {
       console.error("room:join error:", err);
       ack?.({ ok: false, error: err.message });
     }
   });
 
-  // CHAT
-  socket.on("room:chat", async ({ code, userId, message, eventId }, ack) => {
+  // ───── CHAT ─────
+  socket.on("room:chat", async ({ code, message }, ack) => {
     try {
-      if (await isDuplicateEvent(code, eventId)) return ack?.({ ok: true, message: "Duplicate event ignored" });
-
-      const userDoc = await User.findById(userId).select("name").lean();
-      const chatMessage = {
-        userId,
-        name: userDoc?.name || "Anonymous",
-        message,
-        timestamp: new Date().toISOString(),
-      };
-
-      const key = `room:${code}:chat`;
-      await redis.lpush(key, JSON.stringify(chatMessage));
-      await redis.ltrim(key, 0, 49);
-
-      io.to(code).emit("room:chat:new", chatMessage);
+      const user = socket.data.user;
+      const chatMsg = { userId: user.id, user: user.name, message, timestamp: new Date() };
+      await addChatMessage(code, chatMsg);
+      io.to(code).emit("room:chat:new", chatMsg);
       ack?.({ ok: true });
     } catch (err: any) {
       console.error("room:chat error:", err);
@@ -127,32 +109,30 @@ export function registerRoomHandlers(io: Server, socket: Socket) {
     }
   });
 
-  // HEARTBEAT
-  socket.on("room:heartbeat", async ({ code, userId }, ack) => {
+  // ───── RECONEXIÓN ─────
+  socket.on("room:reconnect", async ({ code }, ack) => {
     try {
-      await refreshPlayerHeartbeat(code, userId);
-      ack?.({ ok: true });
+      if (!code) return ack?.({ ok: false, message: "Room code required" });
+      const user = socket.data.user;
+      const room = await Room.findOne({ code });
+      if (!room) return ack?.({ ok: false, message: "Room not found" });
+
+      socket.join(code);
+      currentRoom = code;
+
+      const chatHistory = await getChatHistory(code);
+      ack?.({ ok: true, room: { code, players: room.players, chatHistory } });
     } catch (err: any) {
-      console.error("room:heartbeat error:", err);
+      console.error("room:reconnect error:", err);
       ack?.({ ok: false, error: err.message });
     }
   });
 
-  // DISCONNECT
+  // ───── DESCONECTAR ─────
   socket.on("disconnect", async () => {
-    try {
-      console.log(`🔴 Socket disconnected: ${socket.id}`);
-      if (currentRoom && currentUserId) {
-        await removePlayerActive(currentRoom, currentUserId);
-        const activePlayers = await getActivePlayers(currentRoom);
-        io.to(currentRoom).emit("room:update", {
-          event: "playerLeft",
-          userId: currentUserId,
-          activePlayers,
-        });
-      }
-    } catch (err: any) {
-      console.error("disconnect handler error:", err);
-    }
+    if (!currentRoom) return;
+    const user = socket.data.user;
+    io.to(currentRoom).emit("room:update", { event: "playerLeft", userId: user.id });
+    console.log(`🔴 ${user.name} left ${currentRoom}`);
   });
 }

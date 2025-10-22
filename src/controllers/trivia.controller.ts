@@ -3,6 +3,8 @@ import { Trivia } from "../models/trivia.model";
 import { generateQuestions } from "../services/aiGenerator.service";
 import { AuthRequest } from "../middleware/auth.middleware";
 
+const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
+
 export const generateTrivia = async (req: AuthRequest, res: Response) => {
   try {
     const { topic, quantity } = req.body;
@@ -11,12 +13,28 @@ export const generateTrivia = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ message: "Debes enviar un tema válido." });
     }
 
-    if (!quantity || quantity < 5 || quantity > 20) {
+    if (!quantity || quantity <= 5 || quantity >= 20) {
       return res.status(400).json({ message: "Cantidad de preguntas inválida (rango 5–20)." });
     }
 
+    const maxRetries = 5;
+    let attempts = 0;
+    let questions: any[] = [];
 
-    const questions = await generateQuestions(topic, quantity);
+    while (attempts < maxRetries) {
+      try {
+        questions = await generateQuestions(topic, quantity);
+        break;
+      } catch (err) {
+        attempts++;
+        console.warn(`Intento ${attempts} fallido:`, err);
+        if (attempts < maxRetries) {
+          await delay(1000 * attempts);
+        } else {
+          throw err;
+        }
+      }
+    }
 
     const trivia = new Trivia({
       topic,

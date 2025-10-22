@@ -17,6 +17,10 @@ export interface RoomDocument extends Document {
   createdAt: Date;
   updatedAt: Date;
   expiresAt?: Date;
+
+  // Métodos helper
+  isFull(): boolean;
+  hasPlayer(userId: Types.ObjectId): boolean;
 }
 
 const playerSchema = new Schema<Player>(
@@ -31,37 +35,48 @@ const playerSchema = new Schema<Player>(
 
 const roomSchema = new Schema<RoomDocument>(
   {
-    code: { type: String, required: true, unique: true, trim: true, uppercase: true },
+    code: {
+      type: String,
+      required: true,
+      trim: true,
+      uppercase: true,
+      unique: true, // ✅ Esto ya define el índice único (no hace falta definir otro)
+    },
     hostId: { type: Schema.Types.ObjectId, ref: "User", required: true },
     triviaId: { type: Schema.Types.ObjectId, ref: "Trivia", required: true },
-    status: { type: String, enum: ["waiting", "in-game", "finished"], default: "waiting" },
-    maxPlayers: { type: Number, default: 4, min: 2, max: 10 },
-    players: {
-      type: [playerSchema],
-      validate: {
-        validator: function (players: Player[]) {
-          return players.length <= this.maxPlayers;
-        },
-        message: "La sala ya alcanzó el número máximo de jugadores.",
-      },
+    status: {
+      type: String,
+      enum: ["waiting", "in-game", "finished"],
+      default: "waiting",
     },
+    maxPlayers: { type: Number, default: 4, min: 2, max: 10 },
+    players: { type: [playerSchema], default: [] },
     expiresAt: {
       type: Date,
-      default: () => new Date(Date.now() + 60 * 60 * 1000),
-      index: { expires: 0 },
+      default: () => new Date(Date.now() + 60 * 60 * 1000), // 1 hora
+      index: { expires: "0s" },
     },
   },
   { timestamps: true }
 );
 
+// ✅ Solo dejamos un índice, evitando duplicados
 roomSchema.index({ status: 1 });
 
-export const Room = model<RoomDocument>("Room", roomSchema);
+// ───────────────
+// Métodos helper
+// ───────────────
+roomSchema.methods.isFull = function () {
+  return this.players.length >= this.maxPlayers;
+};
 
-// ───────────────────────────────
-// Métodos para generar códigos
-// ───────────────────────────────
+roomSchema.methods.hasPlayer = function (userId: Types.ObjectId) {
+  return this.players.some((p: Player) => p.userId.equals(userId));
+};
 
+// ───────────────
+// Funciones externas
+// ───────────────
 export function generateRoomCode(length = 6): string {
   const chars = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
   let code = "";
@@ -80,3 +95,5 @@ export async function generateUniqueRoomCode(): Promise<string> {
   } while (exists);
   return code;
 }
+
+export const Room = model<RoomDocument>("Room", roomSchema);

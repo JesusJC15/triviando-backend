@@ -13,8 +13,8 @@ export const generateTrivia = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ message: "Debes enviar un tema válido." });
     }
 
-    if (!quantity || quantity <= 5 || quantity >= 20) {
-      return res.status(400).json({ message: "Cantidad de preguntas inválida (rango 5–20)." });
+    if (!quantity || quantity < 5 || quantity > 20) {
+      return res.status(400).json({ message: "Cantidad de preguntas inválida (rango 5 a 20)." });
     }
 
     const maxRetries = 5;

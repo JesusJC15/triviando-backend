@@ -1,13 +1,11 @@
-import express from "express";
-import { createRoom, getRoomState } from "../controllers/room.controller";
+import { Router } from "express";
+import { createRoom, joinRoom, getRoomState } from "../controllers/room.controller";
 import { authMiddleware } from "../middleware/auth.middleware";
 
-const router = express.Router();
+const router = Router();
 
-// Crear sala + trivia
-router.post("/", authMiddleware, createRoom);
-
-// Obtener estado de sala
+router.post("/create", authMiddleware, createRoom);
+router.post("/join", authMiddleware, joinRoom);
 router.get("/:code", authMiddleware, getRoomState);
 
 export default router;

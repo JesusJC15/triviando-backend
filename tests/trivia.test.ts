@@ -1,73 +1,150 @@
-import request from "supertest";
-import express from "express";
 import mongoose from "mongoose";
-import { generateTrivia } from "../src/controllers/trivia.controller";
+import { MongoMemoryServer } from "mongodb-memory-server";
+import request from "supertest";
+import express, { json } from "express";
+
 import { Trivia } from "../src/models/trivia.model";
-import { generateQuestions } from "../src/services/aiGenerator.service";
-import { authMiddleware } from "../src/middleware/auth.middleware";
+import { generateTrivia } from "../src/controllers/trivia.controller";
+import * as aiService from "../src/services/aiGenerator.service";
 
-jest.mock("../src/services/aiGenerator.service");
-jest.mock("../src/middleware/auth.middleware");
+jest.setTimeout(30000); // por si hay delays simulados
 
+// --- Mock del servicio AI ---
+let generateQuestionsMock: jest.SpyInstance;
+beforeAll(() => {
+  generateQuestionsMock = jest.spyOn(aiService, "generateQuestions").mockImplementation(async (topic, quantity) => {
+    return Array.from({ length: quantity }, (_, i) => ({
+      question: `${topic} Question ${i + 1}`,
+      options: ["A", "B", "C", "D"],
+      correctAnswer: "A",
+      difficulty: "easy",
+    }));
+  });
+});
+
+// --- Setup de Express para test ---
 const app = express();
-app.use(express.json());
-app.post("/api/trivia/generate", authMiddleware, generateTrivia);
+app.use(json());
+app.post("/trivia", (req, res) => generateTrivia(req as any, res));
 
-describe("POST /api/trivia/generate", () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-    (authMiddleware as jest.Mock).mockImplementation((req, _res, next) => {
-      (req as any).user = { _id: new mongoose.Types.ObjectId() };
-      next();
+let mongoServer: MongoMemoryServer;
+
+beforeAll(async () => {
+  mongoServer = await MongoMemoryServer.create();
+  const uri = mongoServer.getUri();
+  await mongoose.connect(uri);
+});
+
+afterAll(async () => {
+  await mongoose.disconnect();
+  await mongoServer.stop();
+});
+
+afterEach(async () => {
+  // Limpiar colecciones entre tests
+  const collections = mongoose.connection.collections;
+  for (const key in collections) {
+    await collections[key].deleteMany({});
+  }
+});
+
+// ------------------- TESTS -------------------
+
+describe("Integration tests - generateTrivia endpoint", () => {
+
+  it("should return 400 if topic is missing", async () => {
+    const res = await request(app)
+      .post("/trivia")
+      .send({ topic: "", quantity: 10 });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ message: "Debes enviar un tema válido." });
+  });
+
+  it("should return 400 if quantity is invalid", async () => {
+    const res = await request(app)
+      .post("/trivia")
+      .send({ topic: "Math", quantity: 3 });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({
+      message: "Cantidad de preguntas inválida (rango 5 a 20).",
     });
   });
 
-  it("❌ debería devolver 400 si falta el tema", async () => {
-    const res = await request(app).post("/api/trivia/generate").send({ topic: "", quantity: 5 });
-    expect(res.status).toBe(400);
-    expect(res.body.message).toMatch(/tema válido/i);
-  });
-
-  it("✅ debería generar trivia correctamente", async () => {
-    const mockQuestions = [
-      {
-        question: "¿Quién fue el libertador de Colombia?",
-        options: ["Simón Bolívar", "Santander", "Nariño", "Sucre"],
-        correctAnswer: "Simón Bolívar",
-        difficulty: "easy",
-      },
-    ];
-
-    // Mock de IA
-    (generateQuestions as jest.Mock).mockResolvedValue(mockQuestions);
-
-    // Mock de persistencia
-    jest.spyOn(Trivia.prototype, "save").mockResolvedValue({
-      _id: new mongoose.Types.ObjectId(),
-      topic: "Historia",
-      questions: mockQuestions,
-      creator: new mongoose.Types.ObjectId(),
-    } as any);
-
+  it("should generate trivia successfully and save in DB", async () => {
     const res = await request(app)
-      .post("/api/trivia/generate")
-      .send({ topic: "Historia de Colombia", quantity: 5 }); // ✅ rango válido
-
-    console.log("💡 Response:", res.status, res.body);
+      .post("/trivia")
+      .send({ topic: "Science", quantity: 7, user: { _id: "user123" } });
 
     expect(res.status).toBe(201);
-    expect(res.body).toHaveProperty("message");
-    expect(res.body).toHaveProperty("triviaId");
+    expect(res.body.message).toBe("Trivia generada exitosamente 🎉");
+    expect(res.body.totalQuestions).toBe(7);
+    expect(res.body.preview.length).toBe(3);
+
+    const triviaInDb = await Trivia.findById(res.body.triviaId).lean();
+    expect(triviaInDb).toBeTruthy();
+    expect(triviaInDb?.topic).toBe("Science");
+    expect(triviaInDb?.questions.length).toBe(7);
   });
 
-  it("🔥 debería manejar errores del servicio IA", async () => {
-    (generateQuestions as jest.Mock).mockRejectedValue(new Error("IA no responde"));
+  it("should handle multiple calls with different topics", async () => {
+    await request(app).post("/trivia").send({ topic: "History", quantity: 5 });
+    await request(app).post("/trivia").send({ topic: "Geography", quantity: 6 });
+
+    const allTrivia = await Trivia.find().lean();
+    expect(allTrivia.length).toBe(2);
+    expect(allTrivia.map(t => t.topic)).toEqual(expect.arrayContaining(["History", "Geography"]));
+  });
+
+  // ------------------- Tests para cobertura de branches -------------------
+
+  it("should retry generateQuestions until success", async () => {
+    const error = new Error("AI service failed");
+    const mockQuestions = [{ question: "Q", options: ["A"], correctAnswer: "A", difficulty: "easy" }];
+
+    // Los dos primeros intentos fallan, luego succeed
+    generateQuestionsMock
+        .mockRejectedValueOnce(error)
+        .mockRejectedValueOnce(error)
+        .mockResolvedValueOnce(mockQuestions);
 
     const res = await request(app)
-      .post("/api/trivia/generate")
-      .send({ topic: "Ciencia", quantity: 5 });
+        .post("/trivia")
+        .send({ topic: "RetryTest", quantity: 5, user: { _id: "userRetry" } }); // quantity >= 5
+
+    expect(res.status).toBe(201);
+    expect(res.body.totalQuestions).toBe(1); // ajusta según tu mock si genera 1 pregunta o más
+    });
+
+    it("should return 500 if all retries fail", async () => {
+    const error = new Error("AI failed completely");
+
+    generateQuestionsMock.mockRejectedValue(error);
+
+    const res = await request(app)
+        .post("/trivia")
+        .send({ topic: "FailTest", quantity: 5, user: { _id: "userFail" } });
 
     expect(res.status).toBe(500);
-    expect(res.body.message).toMatch(/error al generar/i);
-  });
+    expect(res.body.error).toBe("AI failed completely");
+    });
+
+    it("should return 500 if saving trivia fails", async () => {
+    const mockQuestions = [{ question: "Q", options: ["A"], correctAnswer: "A", difficulty: "easy" }];
+
+    generateQuestionsMock.mockResolvedValue(mockQuestions);
+
+    const originalSave = Trivia.prototype.save;
+    Trivia.prototype.save = jest.fn().mockRejectedValue(new Error("DB save failed"));
+
+    const res = await request(app)
+        .post("/trivia")
+        .send({ topic: "DBFailTest", quantity: 5, user: { _id: "userDBFail" } });
+
+    expect(res.status).toBe(500);
+    expect(res.body.error).toBe("DB save failed");
+
+    Trivia.prototype.save = originalSave;
+    });
 });

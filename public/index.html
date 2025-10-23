@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Trivia Socket Test</title>
+  <style>
+    body { font-family: sans-serif; background: #121212; color: #fff; padding: 20px; }
+    input, button { margin: 5px; padding: 8px; }
+    #chat { border: 1px solid #555; padding: 10px; height: 200px; overflow-y: auto; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <h2>Trivia Test</h2>
+
+  <div id="loginSection">
+    <input id="tokenInput" placeholder="JWT token" size="50">
+    <button id="connectBtn">Conectar</button>
+  </div>
+
+  <div id="roomSection" style="display:none;">
+    <p><strong>Usuario:</strong> <span id="userName"></span></p>
+    <button id="createRoomBtn">Crear sala</button>
+    <input id="joinCode" placeholder="Código de sala">
+    <button id="joinRoomBtn">Unirse</button>
+    <button id="reconnectBtn">Reconectar</button>
+
+    <h3>Sala actual: <span id="currentRoomCode">-</span></h3>
+    <div id="players"></div>
+
+    <div id="chat">
+      <div id="messages"></div>
+    </div>
+    <input id="chatInput" placeholder="Mensaje...">
+    <button id="sendChatBtn">Enviar</button>
+  </div>
+
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <script>
+    const API_BASE = "http://localhost:4000"; // ajusta tu backend si usa otro puerto
+    let socket;
+    let currentRoom = localStorage.getItem("currentRoom");
+    let user = null;
+
+    document.getElementById("connectBtn").onclick = connectSocket;
+    document.getElementById("createRoomBtn").onclick = createRoom;
+    document.getElementById("joinRoomBtn").onclick = joinRoom;
+    document.getElementById("reconnectBtn").onclick = reconnectRoom;
+    document.getElementById("sendChatBtn").onclick = sendChat;
+
+    function connectSocket() {
+      const token = document.getElementById("tokenInput").value.trim();
+      if (!token) return alert("Ingresa un token JWT primero");
+
+      socket = io(API_BASE, {
+        auth: { token },
+        reconnection: true,
+        reconnectionAttempts: 5,
+        reconnectionDelay: 1000,
+      });
+
+      socket.on("connect", () => {
+        console.log("🟢 Conectado con ID:", socket.id);
+        document.getElementById("loginSection").style.display = "none";
+        document.getElementById("roomSection").style.display = "block";
+
+        // Intentar reconexión automática
+        if (currentRoom) {
+          console.log("🔁 Intentando reconectar automáticamente a", currentRoom);
+          socket.emit("room:reconnect", { code: currentRoom }, (res) => {
+            if (res.ok) {
+              console.log("✅ Reconectado correctamente:", res.room);
+              updateRoom(res.room);
+            } else {
+              console.warn("❌ No se pudo reconectar:", res.message);
+              localStorage.removeItem("currentRoom");
+            }
+          });
+        }
+      });
+
+      socket.on("disconnect", () => {
+        console.log("🔴 Desconectado del servidor");
+      });
+
+      socket.on("room:update", (data) => {
+        console.log("📢 Evento de sala:", data);
+        if (data.players) updatePlayers(data.players);
+      });
+
+      socket.on("room:chat:new", (msg) => appendChat(`💬 ${msg.user}: ${msg.message}`));
+    }
+
+    function createRoom() {
+      const topic = prompt("Tema de la trivia:");
+      socket.emit("room:create", { topic }, (res) => {
+        if (res.ok) {
+          console.log("✅ Sala creada:", res.room);
+          currentRoom = res.room.code;
+          localStorage.setItem("currentRoom", currentRoom);
+          updateRoom(res.room);
+        } else {
+          alert("Error: " + res.message);
+        }
+      });
+    }
+
+    function joinRoom() {
+      const code = document.getElementById("joinCode").value.trim();
+      if (!code) return alert("Ingresa un código de sala");
+      socket.emit("room:join", { code }, (res) => {
+        if (res.ok) {
+          console.log("✅ Unido a la sala:", res.room);
+          currentRoom = res.room.code;
+          localStorage.setItem("currentRoom", currentRoom);
+          updateRoom(res.room);
+        } else {
+          alert("❌ " + res.message);
+        }
+      });
+    }
+
+    function reconnectRoom() {
+      if (!currentRoom) return alert("No hay sala previa guardada");
+      socket.emit("room:reconnect", { code: currentRoom }, (res) => {
+        if (res.ok) {
+          console.log("🔄 Reconectado:", res.room);
+          updateRoom(res.room);
+        } else {
+          alert("❌ " + res.message);
+        }
+      });
+    }
+
+    function sendChat() {
+      const msg = document.getElementById("chatInput").value.trim();
+      if (!msg) return;
+      socket.emit("room:chat", { code: currentRoom, message: msg }, (res) => {
+        if (!res.ok) alert(res.message);
+      });
+      document.getElementById("chatInput").value = "";
+    }
+
+    function updateRoom(room) {
+      document.getElementById("currentRoomCode").textContent = room.code;
+      updatePlayers(room.players);
+      document.getElementById("messages").innerHTML = "";
+      (room.chatHistory || []).forEach(msg =>
+        appendChat(`💬 ${msg.user}: ${msg.message}`)
+      );
+    }
+
+    function updatePlayers(players) {
+      const playersDiv = document.getElementById("players");
+      playersDiv.innerHTML = "<h4>Jugadores:</h4>" + players.map(p => `• ${p.name}`).join("<br>");
+    }
+
+    function appendChat(text) {
+      const div = document.getElementById("messages");
+      const msgEl = document.createElement("div");
+      msgEl.textContent = text;
+      div.appendChild(msgEl);
+      div.scrollTop = div.scrollHeight;
+    }
+  </script>
+</body>
+</html>

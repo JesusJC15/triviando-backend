@@ -2,164 +2,296 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
-  <title>Trivia Socket Test</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Trivia App + Chat (Socket.IO)</title>
   <style>
-    body { font-family: sans-serif; background: #121212; color: #fff; padding: 20px; }
-    input, button { margin: 5px; padding: 8px; }
-    #chat { border: 1px solid #555; padding: 10px; height: 200px; overflow-y: auto; margin-top: 10px; }
+    /* === Estilos generales === */
+    body {
+      font-family: system-ui, sans-serif;
+      background: #f0f2f5;
+      margin: 0;
+      padding: 2rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    h2 { color: #333; margin-bottom: 1rem; }
+
+    /* === Formularios === */
+    form, #chatContainer {
+      background: #fff;
+      padding: 1.2rem;
+      border-radius: 10px;
+      box-shadow: 0 3px 8px rgba(0,0,0,0.1);
+      width: 350px;
+      margin-bottom: 1.2rem;
+    }
+    input, button {
+      width: 100%;
+      padding: 0.6rem;
+      margin: 0.3rem 0;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+      font-size: 1rem;
+    }
+    button {
+      background: #4caf50;
+      color: white;
+      border: none;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button:hover { background: #43a047; }
+
+    #logoutBtn { background: #e53935; }
+
+    /* === Dashboard === */
+    #dashboard, #chatContainer { display: none; }
+    #output {
+      background: #fafafa;
+      border: 1px solid #ddd;
+      padding: 0.8rem;
+      border-radius: 8px;
+      text-align: left;
+      white-space: pre-wrap;
+      max-height: 200px;
+      overflow: auto;
+    }
+
+    /* === Chat === */
+    #chatMessages {
+      border: 1px solid #ccc;
+      border-radius: 5px;
+      height: 200px;
+      overflow-y: auto;
+      padding: 0.5rem;
+      background: #fafafa;
+      text-align: left;
+      margin-bottom: 0.5rem;
+    }
+    .msg { margin-bottom: 0.4rem; }
+    .msg span { font-weight: bold; color: #2c3e50; }
   </style>
 </head>
 <body>
-  <h2>Trivia Test</h2>
+  <h2>Trivia App + Chat 💬</h2>
 
-  <div id="loginSection">
-    <input id="tokenInput" placeholder="JWT token" size="50">
-    <button id="connectBtn">Conectar</button>
-  </div>
+  <!-- === FORMULARIO LOGIN === -->
+  <form id="loginForm">
+    <h3>Iniciar Sesión</h3>
+    <input type="email" id="loginEmail" placeholder="Correo" required />
+    <input type="password" id="loginPassword" placeholder="Contraseña" required />
+    <button type="submit">Entrar</button>
+  </form>
 
-  <div id="roomSection" style="display:none;">
-    <p><strong>Usuario:</strong> <span id="userName"></span></p>
-    <button id="createRoomBtn">Crear sala</button>
-    <input id="joinCode" placeholder="Código de sala">
+  <!-- === FORMULARIO REGISTRO === -->
+  <form id="registerForm">
+    <h3>Registrarse</h3>
+    <input type="email" id="registerEmail" placeholder="Correo" required />
+    <input type="password" id="registerPassword" placeholder="Contraseña" required />
+    <button type="submit">Crear cuenta</button>
+  </form>
+
+  <!-- === PANEL PRINCIPAL (DESPUÉS DE LOGIN) === -->
+  <div id="dashboard">
+    <h3>Bienvenido 👋</h3>
+    <button id="logoutBtn">Cerrar sesión</button>
+
+    <hr />
+    <h4>Crear Sala</h4>
+    <input type="text" id="topic" placeholder="Tema (ej: historia, cine)" required />
+    <input type="number" id="quantity" placeholder="Cantidad de preguntas (5–20)" min="5" max="20" value="5" />
+    <input type="number" id="maxPlayers" placeholder="Máx jugadores (2–10)" min="2" max="10" value="4" />
+    <button id="createRoomBtn">Crear</button>
+
+    <h4>Unirse a Sala</h4>
+    <input type="text" id="joinCode" placeholder="Código de sala" />
     <button id="joinRoomBtn">Unirse</button>
-    <button id="reconnectBtn">Reconectar</button>
 
-    <h3>Sala actual: <span id="currentRoomCode">-</span></h3>
-    <div id="players"></div>
-
-    <div id="chat">
-      <div id="messages"></div>
-    </div>
-    <input id="chatInput" placeholder="Mensaje...">
-    <button id="sendChatBtn">Enviar</button>
+    <h4>Información de Sala</h4>
+    <pre id="output"></pre>
   </div>
 
+  <!-- === CHAT === -->
+  <div id="chatContainer">
+    <h3>Chat de la Sala 💬</h3>
+    <div id="chatMessages"></div>
+    <form id="chatForm">
+      <input id="chatInput" placeholder="Escribe un mensaje..." autocomplete="off" />
+      <button type="submit">Enviar</button>
+    </form>
+  </div>
+
+  <!-- === Cliente Socket.IO === -->
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
   <script>
-    const API_BASE = "http://localhost:4000"; // ajusta tu backend si usa otro puerto
-    let socket;
-    let currentRoom = localStorage.getItem("currentRoom");
-    let user = null;
+    /****************************************************
+     * CONFIGURACIÓN GLOBAL
+     ****************************************************/
+    const SERVER_URL = "http://localhost:4000"; // Cambia según tu entorno
+    const API_BASE = "http://localhost:4000/api/v1"; // Prefijo de tus rutas REST
+    let socket = null;
+    let currentRoom = null;
 
-    document.getElementById("connectBtn").onclick = connectSocket;
-    document.getElementById("createRoomBtn").onclick = createRoom;
-    document.getElementById("joinRoomBtn").onclick = joinRoom;
-    document.getElementById("reconnectBtn").onclick = reconnectRoom;
-    document.getElementById("sendChatBtn").onclick = sendChat;
+    // Referencias a elementos del DOM
+    const loginForm = document.getElementById("loginForm");
+    const registerForm = document.getElementById("registerForm");
+    const dashboard = document.getElementById("dashboard");
+    const chatContainer = document.getElementById("chatContainer");
+    const chatMessages = document.getElementById("chatMessages");
+    const chatForm = document.getElementById("chatForm");
+    const chatInput = document.getElementById("chatInput");
+    const output = document.getElementById("output");
 
+    /****************************************************
+     * AUTENTICACIÓN BÁSICA
+     ****************************************************/
+    function checkLogin() {
+      const token = localStorage.getItem("token");
+      if (token) {
+        loginForm.style.display = "none";
+        registerForm.style.display = "none";
+        dashboard.style.display = "block";
+      } else {
+        loginForm.style.display = "block";
+        registerForm.style.display = "block";
+        dashboard.style.display = "none";
+        chatContainer.style.display = "none";
+      }
+    }
+    checkLogin();
+
+    // LOGIN
+    loginForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const email = loginEmail.value;
+      const password = loginPassword.value;
+
+      const res = await fetch(`${API_BASE}/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        localStorage.setItem("token", data.token);
+        alert("Inicio de sesión exitoso ✅");
+        checkLogin();
+      } else {
+        alert(data.message || "Error al iniciar sesión");
+      }
+    });
+
+    // REGISTRO
+    registerForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const email = registerEmail.value;
+      const password = registerPassword.value;
+
+      const res = await fetch(`${API_BASE}/auth/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        alert("Registro exitoso 🎉. Ahora puedes iniciar sesión.");
+      } else {
+        alert(data.message || "Error al registrarse");
+      }
+    });
+
+    // LOGOUT
+    logoutBtn.addEventListener("click", () => {
+      localStorage.removeItem("token");
+      if (socket) socket.disconnect();
+      checkLogin();
+    });
+
+    /****************************************************
+     * CONEXIÓN SOCKET.IO
+     ****************************************************/
     function connectSocket() {
-      const token = document.getElementById("tokenInput").value.trim();
-      if (!token) return alert("Ingresa un token JWT primero");
+      const token = localStorage.getItem("token");
+      if (!token) return alert("Debes iniciar sesión");
+      socket = io(SERVER_URL, { auth: { token } });
 
-      socket = io(API_BASE, {
-        auth: { token },
-        reconnection: true,
-        reconnectionAttempts: 5,
-        reconnectionDelay: 1000,
-      });
-
-      socket.on("connect", () => {
-        console.log("🟢 Conectado con ID:", socket.id);
-        document.getElementById("loginSection").style.display = "none";
-        document.getElementById("roomSection").style.display = "block";
-
-        // Intentar reconexión automática
-        if (currentRoom) {
-          console.log("🔁 Intentando reconectar automáticamente a", currentRoom);
-          socket.emit("room:reconnect", { code: currentRoom }, (res) => {
-            if (res.ok) {
-              console.log("✅ Reconectado correctamente:", res.room);
-              updateRoom(res.room);
-            } else {
-              console.warn("❌ No se pudo reconectar:", res.message);
-              localStorage.removeItem("currentRoom");
-            }
-          });
-        }
-      });
-
-      socket.on("disconnect", () => {
-        console.log("🔴 Desconectado del servidor");
-      });
-
+      socket.on("connect", () => addSystemMsg("✅ Conectado al servidor"));
+      socket.on("disconnect", () => addSystemMsg("❌ Desconectado"));
       socket.on("room:update", (data) => {
-        console.log("📢 Evento de sala:", data);
-        if (data.players) updatePlayers(data.players);
+        addSystemMsg(`🔔 Evento: ${data.event} ${data.player?.name ? '('+data.player.name+')' : ''}`);
       });
-
-      socket.on("room:chat:new", (msg) => appendChat(`💬 ${msg.user}: ${msg.message}`));
+      socket.on("room:chat:new", (msg) => addChatMsg(msg.user, msg.message));
     }
 
-    function createRoom() {
-      const topic = prompt("Tema de la trivia:");
-      socket.emit("room:create", { topic }, (res) => {
-        if (res.ok) {
-          console.log("✅ Sala creada:", res.room);
-          currentRoom = res.room.code;
-          localStorage.setItem("currentRoom", currentRoom);
-          updateRoom(res.room);
-        } else {
-          alert("Error: " + res.message);
-        }
-      });
-    }
+    /****************************************************
+     * SALAS
+     ****************************************************/
+    // Crear sala
+    document.getElementById("createRoomBtn").addEventListener("click", () => {
+      const topic = document.getElementById("topic").value.trim();
+      const quantity = parseInt(document.getElementById("quantity").value);
+      const maxPlayers = parseInt(document.getElementById("maxPlayers").value);
+      if (!topic) return alert("Ingresa un tema.");
 
-    function joinRoom() {
+      connectSocket();
+      socket.emit("room:create", { topic, maxPlayers, quantity }, (res) => {
+        if (!res.ok) return alert(res.message || "Error al crear sala");
+        currentRoom = res.room.code;
+        output.textContent = JSON.stringify(res.room, null, 2);
+        startChat(res.room.chatHistory || []);
+      });
+    });
+
+    // Unirse a sala
+    document.getElementById("joinRoomBtn").addEventListener("click", () => {
       const code = document.getElementById("joinCode").value.trim();
-      if (!code) return alert("Ingresa un código de sala");
+      if (!code) return alert("Código requerido");
+
+      connectSocket();
       socket.emit("room:join", { code }, (res) => {
-        if (res.ok) {
-          console.log("✅ Unido a la sala:", res.room);
-          currentRoom = res.room.code;
-          localStorage.setItem("currentRoom", currentRoom);
-          updateRoom(res.room);
-        } else {
-          alert("❌ " + res.message);
-        }
+        if (!res.ok) return alert(res.message || "Error al unirse a la sala");
+        currentRoom = res.room.code;
+        output.textContent = JSON.stringify(res.room, null, 2);
+        startChat(res.room.chatHistory || []);
       });
+    });
+
+    /****************************************************
+     * CHAT
+     ****************************************************/
+    function startChat(chatHistory) {
+      chatContainer.style.display = "block";
+      chatMessages.innerHTML = "";
+      chatHistory.forEach(m => addChatMsg(m.user, m.message));
     }
 
-    function reconnectRoom() {
-      if (!currentRoom) return alert("No hay sala previa guardada");
-      socket.emit("room:reconnect", { code: currentRoom }, (res) => {
-        if (res.ok) {
-          console.log("🔄 Reconectado:", res.room);
-          updateRoom(res.room);
-        } else {
-          alert("❌ " + res.message);
-        }
+    // Enviar mensaje
+    chatForm.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const message = chatInput.value.trim();
+      if (!message) return;
+      socket.emit("room:chat", { code: currentRoom, message }, (ack) => {
+        if (!ack.ok) alert(ack.message || "Error enviando mensaje");
       });
-    }
+      chatInput.value = "";
+    });
 
-    function sendChat() {
-      const msg = document.getElementById("chatInput").value.trim();
-      if (!msg) return;
-      socket.emit("room:chat", { code: currentRoom, message: msg }, (res) => {
-        if (!res.ok) alert(res.message);
-      });
-      document.getElementById("chatInput").value = "";
+    // Mostrar mensajes
+    function addChatMsg(user, msg) {
+      const div = document.createElement("div");
+      div.className = "msg";
+      div.innerHTML = `<span>${user}:</span> ${msg}`;
+      chatMessages.appendChild(div);
+      chatMessages.scrollTop = chatMessages.scrollHeight;
     }
-
-    function updateRoom(room) {
-      document.getElementById("currentRoomCode").textContent = room.code;
-      updatePlayers(room.players);
-      document.getElementById("messages").innerHTML = "";
-      (room.chatHistory || []).forEach(msg =>
-        appendChat(`💬 ${msg.user}: ${msg.message}`)
-      );
-    }
-
-    function updatePlayers(players) {
-      const playersDiv = document.getElementById("players");
-      playersDiv.innerHTML = "<h4>Jugadores:</h4>" + players.map(p => `• ${p.name}`).join("<br>");
-    }
-
-    function appendChat(text) {
-      const div = document.getElementById("messages");
-      const msgEl = document.createElement("div");
-      msgEl.textContent = text;
-      div.appendChild(msgEl);
-      div.scrollTop = div.scrollHeight;
+    function addSystemMsg(msg) {
+      const div = document.createElement("div");
+      div.className = "msg";
+      div.style.color = "#777";
+      div.textContent = msg;
+      chatMessages.appendChild(div);
+      chatMessages.scrollTop = chatMessages.scrollHeight;
     }
   </script>
 </body>

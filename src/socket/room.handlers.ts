@@ -198,7 +198,7 @@ export function registerRoomHandlers(io: Server, socket: Socket) {
       if (room.hostId.toString() !== user.id) return ack?.({ ok: false, message: "Only host can start the game" });
 
       // change room status
-      await Room.findOneAndUpdate({ code }, { status: "in-progress" }).exec();
+      await Room.findOneAndUpdate({ code }, { status: "in-game" }).exec();
       
       // init game state in redis
       const players = room.players.map((p:any) => ({ userId: p.userId.toString(), name: p.name }));

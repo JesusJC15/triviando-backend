@@ -27,9 +27,9 @@ export async function initGameState(
   const state: GameState = {
     roomCode: code,
     triviaId: triviaId.toString(),
-    status: "in-progress",
+    status: "in-game",
     currentQuestionIndex: 0,
-    roundSequence: 1,
+    roundSequence: 0,
     scores: initialScores,
     blocked: {},
     players: players.map((p) => ({ ...p, score: 0 })),

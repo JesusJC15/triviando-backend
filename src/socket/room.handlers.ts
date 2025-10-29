@@ -240,9 +240,11 @@ export function registerRoomHandlers(io: Server, socket: Socket) {
     // increment roundSequence to avoid stale events
     state.roundSequence = (state.roundSequence || 0) + 1;
     state.questionReadEndsAt = Date.now() + readMs;
-  await saveGameState(code, state);
-  // Emit full game state so clients sync immediately
-  ioInstance.to(code).emit('game:update', state);
+    // mark that we're in the reading phase
+    state.status = "reading";
+    await saveGameState(code, state);
+    // Emit full game state so clients sync immediately
+    ioInstance.to(code).emit('game:update', state);
 
     ioInstance.to(code).emit("round:showQuestion", {
       roundSequence: state.roundSequence,
@@ -253,6 +255,13 @@ export function registerRoomHandlers(io: Server, socket: Socket) {
     // schedule openButton after readMs + buttonDelay
     scheduleTimer(`${code}:openButton:${state.roundSequence}`, async () => {
       await resetFirstPress(code);
+      // update state to reflect open button phase
+      const s = await getGameState(code);
+      if (!s || s.roundSequence !== state.roundSequence) return;
+      s.status = "open";
+      await saveGameState(code, s);
+      ioInstance.to(code).emit('game:update', s);
+
       ioInstance.to(code).emit("round:openButton", { roundSequence: state.roundSequence, pressWindowMs: PRESS_WINDOW_MS });
 
       // schedule fallback if nobody presses
@@ -279,6 +288,8 @@ export function registerRoomHandlers(io: Server, socket: Socket) {
       scores: state.scores,
     });
 
+  // set result state, unlock everyone and advance question
+  state.status = "result";
   state.blocked = {};
   state.currentQuestionIndex += 1;
   await saveGameState(code, state);
@@ -324,6 +335,8 @@ export function registerRoomHandlers(io: Server, socket: Socket) {
       state.players.forEach((p) => {
         state.blocked[p.userId] = p.userId !== user.id;
       });
+      // mark that we are now in the answering window for the winner
+      state.status = "answering";
       await saveGameState(code, state);
       // Emit full game state so clients update blocked/scores etc.
       io.to(code).emit('game:update', state);
@@ -399,10 +412,11 @@ export function registerRoomHandlers(io: Server, socket: Socket) {
       return;
     }
 
-    // 🔔 Tiempo efectivamente expirado -> bloquear al que falló y desbloquear al resto
-    state.blocked = {};
-    state.players.forEach(p => { state.blocked[p.userId] = p.userId === userId; });
-    await saveGameState(code, state);
+  // 🔔 Tiempo efectivamente expirado -> bloquear al que falló y desbloquear al resto
+  state.status = "result";
+  state.blocked = {};
+  state.players.forEach(p => { state.blocked[p.userId] = p.userId === userId; });
+  await saveGameState(code, state);
 
     ioInstance.to(code).emit("round:result", {
       roundSequence,
@@ -430,8 +444,11 @@ export function registerRoomHandlers(io: Server, socket: Socket) {
       await handleNoPresses(code, ioInstance, roundSequence);
       return;
     }
-
+    // reopen button for eligible players and update status
     await resetFirstPress(code);
+    state.status = "open";
+    await saveGameState(code, state);
+    ioInstance.to(code).emit('game:update', state);
     ioInstance.to(code).emit("round:openButton", { roundSequence, pressWindowMs: PRESS_WINDOW_MS });
     scheduleTimer(`${code}:pressWindow:${roundSequence}`, async () => {
       await resetFirstPress(code);
@@ -477,12 +494,13 @@ export function registerRoomHandlers(io: Server, socket: Socket) {
           scores: state.scores,
         });
 
-  // reset blocked for next question
-  state.blocked = {};
-  state.currentQuestionIndex += 1;
-  await saveGameState(code, state);
-  // Emit state so all clients see the updated scores / blocked / index
-  io.to(code).emit('game:update', state);
+        // reset blocked for next question and mark result phase
+        state.status = "result";
+        state.blocked = {};
+        state.currentQuestionIndex += 1;
+        await saveGameState(code, state);
+        // Emit state so all clients see the updated scores / blocked / index
+        io.to(code).emit('game:update', state);
 
         // schedule next round or end (reserve last question as tie-break)
         const triviaDoc = await Trivia.findById(state.triviaId).lean();
@@ -493,14 +511,16 @@ export function registerRoomHandlers(io: Server, socket: Socket) {
         }
         return ack?.({ ok: true, correct: true });
       } else {
-  // incorrect -> block this user, unlock the rest and reopen button for others
-  state.blocked = {};
-  state.players.forEach(p => { state.blocked[p.userId] = p.userId === user.id; });
-  await saveGameState(code, state);
 
-  // broadcast result and updated state
-  io.to(code).emit("round:result", { roundSequence, playerId: user.id, correct: false, message: "Incorrect answer", scores: state.scores });
-  io.to(code).emit('game:update', state);
+    // incorrect -> block this user, unlock the rest and reopen button for others
+    state.status = "result";
+    state.blocked = {};
+    state.players.forEach(p => { state.blocked[p.userId] = p.userId === user.id; });
+    await saveGameState(code, state);
+
+    // broadcast result and updated state
+    io.to(code).emit("round:result", { roundSequence, playerId: user.id, correct: false, message: "Incorrect answer", scores: state.scores });
+    io.to(code).emit('game:update', state);
 
   // remove firstPress and reopen button for others
   await resetFirstPress(code);

@@ -119,7 +119,7 @@ describe("Room API integration tests", () => {
       .send({ topic: "Math", maxPlayers: 1, quantity: 8, user: { id: userId, name: "TestUser" } });
 
     expect(res.status).toBe(400);
-    expect(res.body.message).toBe("Número de jugadores inválido (2 a 10).");
+    expect(res.body.message).toBe("Número de jugadores inválido (2 a 20).");
   });
 
   it("should join an existing room", async () => {

@@ -8,7 +8,7 @@ export type PlayerScore = {
 export interface GameState {
     roomCode: string;
     triviaId: string;
-    status: 'waiting' | 'in-game' | 'finished';
+    status: 'waiting' | 'in-game' | 'finished' | 'open' | 'result' | 'reading' | 'answering';
     currentQuestionIndex: number;
     roundSequence: number;
     scores: Record<string, number>; // userId to score mapping

@@ -5,7 +5,7 @@ import User from "../models/user.model";
 import { generateQuestions } from "../services/aiGenerator.service";
 import { addChatMessage, getChatHistory } from "../utils/redisChat";
 import redis from "../config/redis";
-import { Types } from "mongoose";
+// mongoose Types not used in this file
 import { 
   initGameState, 
   getGameState, 
@@ -168,7 +168,7 @@ export function registerRoomHandlers(io: Server, socket: Socket) {
   socket.on("room:reconnect", async ({ code }, ack) => {
     try {
       if (!code) return ack?.({ ok: false, message: "Room code required" });
-      const user = socket.data.user;
+      const _user = socket.data.user;
       const room = await Room.findOne({ code }).lean();
       if (!room) return ack?.({ ok: false, message: "Room not found" });
 
@@ -204,9 +204,11 @@ export function registerRoomHandlers(io: Server, socket: Socket) {
       const players = room.players.map((p:any) => ({ userId: p.userId.toString(), name: p.name }));
       await initGameState(code, room.triviaId.toString(), players);
 
-      // get trivia safely and compute total questions
+      // get trivia safely and compute playable total questions (reserve 1 extra for tie-break)
       const triviaDoc = await Trivia.findById(room.triviaId).lean();
-      const totalQuestions = Array.isArray(triviaDoc?.questions) ? triviaDoc.questions.length : 0;
+      const totalQuestions = Array.isArray(triviaDoc?.questions) && triviaDoc.questions.length > 0
+        ? Math.max(0, triviaDoc.questions.length - 1)
+        : 0;
       io.to(code).emit("game:started", { ok: true, totalQuestions });
 
       // start first round
@@ -228,6 +230,11 @@ export function registerRoomHandlers(io: Server, socket: Socket) {
     if (!trivia) return;
 
     const q = trivia!.questions[state.currentQuestionIndex];
+    // if no question found (out of bounds) then finish the game
+    if (!q) {
+      await endGame(code, ioInstance);
+      return;
+    }
     const readMs = DEFAULT_QUESTION_READ_MS;
     const buttonDelay = Math.floor(Math.random() * (MAX_BUTTON_DELAY_MS - MIN_BUTTON_DELAY_MS + 1)) + MIN_BUTTON_DELAY_MS;
 
@@ -275,10 +282,10 @@ export function registerRoomHandlers(io: Server, socket: Socket) {
     state.currentQuestionIndex += 1;
     await saveGameState(code, state);
 
-    // next round or end
+    // next round or end (reserve last question as tie-break)
     setTimeout(async () => {
       const triviaDoc = await Trivia.findById(state.triviaId).lean();
-      if (!triviaDoc || !Array.isArray(triviaDoc.questions) || state.currentQuestionIndex >= triviaDoc.questions.length) {
+      if (!triviaDoc || !Array.isArray(triviaDoc.questions) || state.currentQuestionIndex >= Math.max(0, triviaDoc.questions.length - 1)) {
         await endGame(code, ioInstance);
       } else {
         await startRound(code, ioInstance);
@@ -463,8 +470,13 @@ export function registerRoomHandlers(io: Server, socket: Socket) {
         state.currentQuestionIndex += 1;
         await saveGameState(code, state);
 
-        // schedule next round
-        setTimeout(() => startRound(code, io), 1500);
+        // schedule next round or end (reserve last question as tie-break)
+        const triviaDoc = await Trivia.findById(state.triviaId).lean();
+        if (!triviaDoc || !Array.isArray(triviaDoc.questions) || state.currentQuestionIndex >= Math.max(0, triviaDoc.questions.length - 1)) {
+          await endGame(code, io);
+        } else {
+          setTimeout(() => startRound(code, io), 1500);
+        }
         return ack?.({ ok: true, correct: true });
       } else {
         // incorrect -> block this user, reopen button for others
@@ -507,12 +519,30 @@ export function registerRoomHandlers(io: Server, socket: Socket) {
     await saveGameState(code, state);
 
     try {
+      const triviaDoc = await Trivia.findById(state.triviaId).lean();
       const sortedPlayers = Object.entries(state.scores)
         .map(([userId, score]) => {
           const player = state.players.find((p) => p.userId === userId);
           return { userId, name: player?.name || "Desconocido", score };
         })
         .sort((a, b) => b.score - a.score);
+
+      // Detect tie between top two players
+      const tie = sortedPlayers.length > 1 && sortedPlayers[0].score === sortedPlayers[1].score;
+
+      // If there's a tie and we have a spare question for tie-break and it wasn't used yet,
+      // schedule the tie-break round instead of persisting the result.
+      const spareIndex = Array.isArray(triviaDoc?.questions) ? triviaDoc.questions.length - 1 : -1;
+      if (tie && spareIndex >= 0 && !state.tieBreakerPlayed) {
+        console.log(`[endGame] Tie detected in ${code}. Scheduling tie-break round at index ${spareIndex}`);
+        state.status = "in-game";
+        state.tieBreakerPlayed = true;
+        // ensure currentQuestionIndex points to the spare question
+        state.currentQuestionIndex = spareIndex;
+        await saveGameState(code, state);
+        await startRound(code, ioInstance);
+        return;
+      }
 
       const winner = sortedPlayers[0];
 

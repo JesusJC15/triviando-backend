@@ -1,6 +1,5 @@
 import redis from "../config/redis";
 import { Trivia } from "../models/trivia.model";
-import { Room } from "../models/room.model";
 import { GameState } from "../types/game.types";
 import { setNxPx } from "../utils/redisHelpers";
 

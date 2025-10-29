@@ -9,7 +9,7 @@ export async function setNxPx(key: string, value: string, px: number) {
     // ioredis supports positional args: set(key, value, 'NX', 'PX', ms)
     const res = await (redis as any).set(key, value, "NX", "PX", px);
     return res;
-  } catch (err) {
+  } catch {
     try {
       // node-redis v4 uses options object: set(key, value, { NX: true, PX: px })
       const res2 = await (redis as any).set(key, value, { NX: true, PX: px });

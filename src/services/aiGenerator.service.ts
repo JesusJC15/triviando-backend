@@ -39,7 +39,7 @@ Solo responde con el JSON.
 
   const jsonStart = text.indexOf("[");
   const jsonEnd = text.lastIndexOf("]") + 1;
-  let jsonStr = text.substring(jsonStart, jsonEnd);
+  const jsonStr = text.substring(jsonStart, jsonEnd);
 
   try {
     const questions = JSON.parse(jsonStr);
@@ -49,7 +49,7 @@ Solo responde con el JSON.
       correctAnswer: q.options[q.correctAnswer],
       difficulty: q.difficulty,
     }));
-  } catch (err) {
+  } catch {
     throw new Error("No se pudo parsear la respuesta de Gemini. Respuesta: " + text);
   }
 }

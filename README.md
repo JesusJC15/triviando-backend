@@ -1,21 +1,192 @@
-```markdown
-# triviando-backend
+# TrivIAndo — Backend
+
+[![CI](https://github.com/Pokesaurios/triviando-backend/actions/workflows/ci.yml/badge.svg)](https://github.com/Pokesaurios/triviando-backend/actions/workflows/ci.yml) [![Coverage](https://codecov.io/gh/Pokesaurios/triviando-backend/branch/main/graph/badge.svg)](https://codecov.io/gh/Pokesaurios/triviando-backend)
+
+Backend del servidor de TrivIAndo: una aplicación en TypeScript que expone una API REST y WebSockets (Socket.IO) para jugar trivias en tiempo real, almacenar resultados y aprovechar generación de contenido con AI.
+
+> Nota: los badges apuntan a GitHub Actions (workflow: `.github/workflows/ci.yml`) y Codecov. Aparecerán como activos una vez que configures el workflow de CI y el reporte de cobertura (Codecov) en el repositorio.
+
+## Contenido
+
+- Visión general
+- Tecnologías
+- Requisitos
+- Instalación y ejecución
+- Variables de entorno
+- Scripts disponibles
+- Documentación API (OpenAPI/Swagger)
+- Notas sobre WebSockets y timers (escalado)
+- Estructura del proyecto
+- Tests y cobertura
+- Contribución y próximos pasos
+
+## Visión general
+
+El backend gestiona salas, preguntas, resultados y la lógica de juego en tiempo real. Utiliza Socket.IO para la comunicación en tiempo real entre clientes y servidor, MongoDB para persistencia y Redis para funcionalidades de cache/pubsub cuando aplica.
+
+También contiene integración con servicios de generación de contenidos (paquete `@google/generative-ai` está presente) para características AI (p. ej. generación de preguntas o descripciones).
+
+## Tecnologías principales
+
+- Node.js + TypeScript
+- Express (API REST)
+- Socket.IO (real-time)
+- MongoDB (mongoose)
+- Redis (ioredis, adapter para Socket.IO)
+- Jest (tests)
+- ESLint (linting)
+- Swagger / OpenAPI para documentación (`src/docs/openapi.yaml`)
+
+## Requisitos
+
+- Node.js (versión LTS recomendada, >=18)
+- npm (o yarn)
+- MongoDB (local o remoto)
+- Redis (opcional, recomendado para scaling de sockets)
+
+## Instalación
+
+1. Clona el repositorio
+
+2. Instala dependencias
+
+```powershell
+npm install
 ```
 
-## Development
+3. Crea un archivo `.env` en la raíz con las variables de entorno necesarias (ver sección siguiente).
 
-See project files for scripts and configuration. This repository contains the backend for the TrivIAndo game server.
+## Variables de entorno (ejemplos)
 
-## Notes
+Las variables usadas por la app (ajusta según tu entorno):
 
-### Timers and deployment note
+- `PORT` - puerto en el que corre el servidor (por defecto 3000)
+- `MONGO_URI` - URI de conexión a MongoDB
+- `REDIS_URL` - URL de Redis (ej. redis://localhost:6379) — opcional pero recomendado para producción y scaling de sockets
+- `JWT_SECRET` - clave para firmar JWT
+- `GOOGLE_API_KEY` o `GOOGLE_APPLICATION_CREDENTIALS` - credenciales para la integración de la librería de generación AI (si se utiliza)
+- `NODE_ENV` - `development` | `production`
 
-The game server uses in-memory timers (see `src/services/game.service.ts` -> `timersMap` and `scheduleTimer`) to coordinate question flow, open/close windows and fallback timeouts. These timers are stored in the process memory and are suitable for single-instance deployments (one running server process).
+Ejemplo mínimo `.env`:
 
-If you plan to run multiple instances (horizontal scaling), these in-memory timers will not be shared across instances and can cause inconsistent behavior (duplicate timers, missed events). Options to address this when scaling:
+```text
+PORT=3000
+MONGO_URI=mongodb://localhost:27017/triviando
+REDIS_URL=redis://localhost:6379
+JWT_SECRET=changeme
+NODE_ENV=development
+```
 
-- Move timers to a centralized store or scheduler (Redis key TTL + worker, BullMQ, Agenda, or a dedicated job worker).
-- Use Redis-based pub/sub or streams to coordinate time-based events across instances.
-- Keep a single dedicated "leader" instance responsible for timers (requires leader election).
+## Scripts útiles
 
-Add a short comment in the code or infrastructure docs if you intend to scale so future maintainers are aware of this limitation.
+Los scripts disponibles en `package.json` (usa `npm run <script>`):
+
+- `dev` — Ejecuta en modo desarrollo con recarga (ts-node-dev)
+- `build` — Compila TypeScript y copia archivos de docs a `dist`
+- `start` — Ejecuta el build (`node dist/server.js`)
+- `test` — Ejecuta tests con Jest y genera cobertura
+- `lint` — Ejecuta ESLint
+- `lint:fix` — Ejecuta ESLint y aplica arreglos automáticos
+
+Ejemplos (PowerShell):
+
+```powershell
+npm run dev     # desarrollo
+npm run build   # compilar
+npm start       # ejecutar build en producción
+npm test        # correr tests
+```
+
+## Documentación de la API
+
+La especificación OpenAPI se encuentra en `src/docs/openapi.yaml`. Mientras el servidor está corriendo, la documentación Swagger UI está disponible en `/api-docs` (o en la ruta que el servidor configure).
+
+## WebSockets, timers y notas de despliegue
+
+El juego usa timers en memoria (revisa `src/services/game.service.ts` -> `timersMap` y `scheduleTimer`) para coordinar la secuencia de preguntas, abrir/cerrar ventanas y timeouts. Esto funciona bien en despliegues de una sola instancia, pero tiene implicaciones cuando escales horizontalmente:
+
+- En-memory timers no se comparten entre instancias. Pueden provocar timers duplicados, eventos perdidos o comportamientos inconsistentes.
+
+Opciones para producción multi-instancia:
+
+- Mover la coordinación a un scheduler centralizado (p. ej. Redis TTL + worker, BullMQ, Agenda o un worker dedicado).
+- Usar Redis (o equivalente) para pub/sub y coordinar eventos entre instancias.
+- Mantener una única instancia "líder" responsable de timers (requiere electión de líder y detección de fallos).
+
+Si planeas desplegar en múltiples réplicas, documenta la estrategia elegida y modifica `game.service` para usar la solución centralizada.
+
+Además, para Socket.IO se recomienda configurar el adapter Redis (`@socket.io/redis-adapter`) cuando haya más de una instancia.
+
+## Estructura del proyecto (resumen)
+
+- `src/` — código fuente principal
+	- `app.ts` — configuración de express y middleware
+	- `server.ts` — arranque del servidor
+	- `config/` — configuración (Mongo, Redis, Swagger)
+	- `controllers/` — endpoints REST
+	- `services/` — lógica de negocio y timers (incluye `game.service.ts`)
+	- `models/` — esquemas mongoose
+	- `socket/` — handlers y lógica de sockets
+	- `middleware/` — auth, error handler, socketAuth
+	- `utils/` — helpers (token, redis helpers, password utils)
+- `tests/` — tests unitarios/integración (Jest + supertest)
+- `docs/` o `src/docs/` — OpenAPI y documentación relacionada
+- `coverage/` — reportes de cobertura tras ejecutar tests
+
+## Tests y cobertura
+
+Ejecuta:
+
+```powershell
+npm test
+```
+
+El reporte de cobertura se genera en la carpeta `coverage/` y también hay un reporte HTML en `coverage/lcov-report` para revisión local.
+
+## Contrato breve de la API y websocket (útil para tests)
+
+- Inputs: requests HTTP JSON para endpoints REST; eventos Socket.IO con payloads JSON para acciones en tiempo real (unirse a sala, responder, iniciar juego).
+- Outputs: respuestas JSON (REST) y eventos Socket.IO (emit/broadcast) con estados de juego y resultados.
+- Errores comunes: token JWT inválido/expirado (401), payloads inválidos (400), problemas de DB (500). Manejo centralizado en `middleware/errorHandler.ts`.
+
+Edge cases importantes:
+
+- Clientes desconectados durante una partida (reconexión y re-sincronización de estado).
+- Timers y race conditions en setups multi-instancia.
+- Latencias de Redis/Mongo que afecten al flujo en tiempo real.
+
+## Contribuir
+
+Si quieres contribuir:
+
+1. Crea un fork y rama con un nombre claro.
+2. Añade tests para nuevas funcionalidades o correcciones.
+3. Ejecuta `npm run lint` y `npm test` antes de crear PR.
+4. Abre un PR con descripción clara y referencias a issues.
+
+## Próximos pasos recomendados
+
+- Añadir un `Dockerfile` y `docker-compose` para facilitar despliegues locales.
+- Integrar CI (GitHub Actions) para lint, build y tests en cada PR.
+- Exponer badges (build, coverage, npm version) en el README.
+- Si usas la funcionalidad AI, documentar los requisitos de credenciales y permisos.
+
+## Troubleshooting rápido
+
+- 500 al arrancar: revisa `MONGO_URI` y que Mongo esté alcanzable.
+- Problemas de sockets en producción: configura `REDIS_URL` y habilita el adapter para Socket.IO.
+- Tests que fallan por puertos en uso: verifica que ninguna instancia del servidor quede en segundo plano.
+
+## Licencia y contacto
+
+Incluye licencia en el repo si corresponde (p. ej. MIT). Para preguntas o soporte, abre un issue o contacta al equipo responsable del repo.
+
+---
+
+Si querés, puedo:
+
+- Añadir badges al inicio del README (build, coverage, npm)
+- Crear un `Dockerfile` y `docker-compose.yml` para desarrollo
+- Añadir un ejemplo de `.env.example` y un pequeño script de `Makefile`/PowerShell para inicialización rápida
+
+Dime qué preferís y lo preparo.

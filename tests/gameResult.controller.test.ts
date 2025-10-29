@@ -105,7 +105,7 @@ describe("GameResult Controller (unit tests)", () => {
       expect(res.json).toHaveBeenCalledWith(mockResults[0]);
     });
 
-    it("debe devolver 404 si no se encuentra el resultado", async () => {
+    it("should return 404 if result is not found", async () => {
       const mockPopulate = jest.fn().mockResolvedValue(null);
       (GameResult.findOne as any) = jest.fn(() => ({
         populate: mockPopulate,

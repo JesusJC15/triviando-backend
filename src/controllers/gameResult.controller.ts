@@ -28,7 +28,7 @@ export const getGameResultByRoom = async (req: Request, res: Response) => {
     const { code } = req.params;
     const result = await GameResult.findOne({ roomCode: code }).populate("triviaId", "topic");
     if (!result) return res.status(404).json({ message: "Game result not found" });
-    const obj = (result as any) && typeof (result as any).toObject === "function" ? (result as any).toObject() : result;
+    const obj = ((result as any), typeof (result as any).toObject === "function") ? (result as any).toObject() : result;
     if (obj && obj.scores instanceof Map) {
       obj.scores = Object.fromEntries(obj.scores);
     }

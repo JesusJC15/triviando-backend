@@ -30,6 +30,11 @@ jest.mock("../src/socket/room.handlers", () => ({
   registerRoomHandlers: mockRegisterRoomHandlers,
 }));
 
+const mockRegisterGameHandlers = jest.fn();
+jest.mock("../src/socket/game.handlers", () => ({
+  registerGameHandlers: mockRegisterGameHandlers,
+}));
+
 // Ahora importamos la función a probar
 import { initSocketServer } from "../src/socket";
 

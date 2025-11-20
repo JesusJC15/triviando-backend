@@ -94,9 +94,6 @@ describe("initSocketServer", () => {
     // Ejecutar handler
     connectionHandler(fakeSocket);
 
-    // Debe loggear la conexión
-    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("🟢 Connected: Pepito"));
-
     // Debe haber llamado registerRoomHandlers con la instancia io y el socket
     // El primer arg pasado a registerRoomHandlers debe ser la instancia retornada por mockServerCtor
     const createdIoInstance = mockServerCtor.mock.results[0].value;

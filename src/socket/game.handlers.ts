@@ -11,6 +11,7 @@ import {
   attemptFirstPress,
   resetFirstPress,
   dedupeEvent,
+  clearAnswerWindow,
   DEFAULT_QUESTION_READ_MS,
   MAX_BUTTON_DELAY_MS,
   MIN_BUTTON_DELAY_MS,
@@ -153,7 +154,7 @@ export function registerGameHandlers(io: Server, socket: Socket) {
 
         state.status = "result";
         state.blocked = {};
-        state.answerWindowEndsAt = undefined;
+        clearAnswerWindow(state);
         state.currentQuestionIndex += 1;
         await saveGameState(code, state);
         io.to(code).emit('game:update', state);
@@ -169,7 +170,7 @@ export function registerGameHandlers(io: Server, socket: Socket) {
         state.status = "result";
         state.blocked = {};
         state.players.forEach(p => { state.blocked[p.userId] = p.userId === user.id; });
-        state.answerWindowEndsAt = undefined;
+        clearAnswerWindow(state);
         await saveGameState(code, state);
 
         io.to(code).emit("round:result", { roundSequence, playerId: user.id, correct: false, message: "Incorrect answer", scores: state.scores });
@@ -202,7 +203,7 @@ export function registerGameHandlers(io: Server, socket: Socket) {
 
     state.roundSequence = (state.roundSequence || 0) + 1;
     state.questionReadEndsAt = Date.now() + readMs;
-    state.answerWindowEndsAt = undefined;
+    clearAnswerWindow(state);
     state.status = "reading";
     await saveGameState(code, state);
     ioInstance.to(code).emit('game:update', state);
@@ -251,7 +252,7 @@ export function registerGameHandlers(io: Server, socket: Socket) {
 
     state.status = "result";
     state.blocked = {};
-    state.answerWindowEndsAt = undefined;
+    clearAnswerWindow(state);
     state.currentQuestionIndex += 1;
     await saveGameState(code, state);
     ioInstance.to(code).emit('game:update', state);

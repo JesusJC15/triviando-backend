@@ -76,6 +76,10 @@ export async function saveGameState(code: string, state: GameState) {
   await redis.set(GAME_PREFIX(code), JSON.stringify(state));
 }
 
+export function clearAnswerWindow(state: GameState) {
+  state.answerWindowEndsAt = undefined;
+}
+
 /* In-memory timers for MVP (single instance)
    Key naming: `${code}:timers:${type}:${roundSequence}` */
 export const timersMap = new Map<string, NodeJS.Timeout>();

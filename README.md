@@ -50,7 +50,7 @@ También contiene integración con servicios de generación de contenidos (paque
 npm install
 ```
 
-1. Crea un archivo `.env` en la raíz con las variables de entorno necesarias (ver sección siguiente).
+3. Crea un archivo `.env` en la raíz con las variables de entorno necesarias (ver sección siguiente).
 
 ## Variables de entorno (ejemplos)
 

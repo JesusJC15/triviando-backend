@@ -292,6 +292,7 @@ export function registerGameHandlers(io: Server, socket: Socket) {
     state.status = "result";
     state.blocked = {};
     state.players.forEach(p => { state.blocked[p.userId] = p.userId === userId; });
+    clearAnswerWindow(state);
     await saveGameState(code, state);
 
     ioInstance.to(code).emit("round:result", {

@@ -98,6 +98,7 @@ describe("initSocketServer", () => {
     // El primer arg pasado a registerRoomHandlers debe ser la instancia retornada por mockServerCtor
     const createdIoInstance = mockServerCtor.mock.results[0].value;
     expect(mockRegisterRoomHandlers).toHaveBeenCalledWith(createdIoInstance, fakeSocket);
+    expect(mockRegisterGameHandlers).toHaveBeenCalledWith(createdIoInstance, fakeSocket);
 
     logSpy.mockRestore();
   });

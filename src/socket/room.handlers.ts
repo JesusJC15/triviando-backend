@@ -18,7 +18,8 @@ export function registerRoomHandlers(io: Server, socket: Socket) {
     try {
       const u = await User.findById(userId).select("name").lean();
       return u?.name || "Anonymous";
-    } catch {
+    } catch (error) {
+      console.error('[resolveUserName] Error fetching user:', error);
       return "Anonymous";
     }
   }

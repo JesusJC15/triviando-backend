@@ -1,11 +1,11 @@
 import { Server, Socket } from "socket.io";
 import { Room, generateUniqueRoomCode } from "../models/room.model";
 import { Trivia } from "../models/trivia.model";
-import User from "../models/user.model";
 import { generateQuestions } from "../services/aiGenerator.service";
 import { addChatMessage, getChatHistory } from "../utils/redisChat";
 import redis from "../config/redis";
 import { getGameState } from "../services/game.service";
+import { resolveUserName } from "../utils/userHelpers";
 
 const ROOM_CACHE_TTL = 120;
 
@@ -29,8 +29,8 @@ export function registerRoomHandlers(io: Server, socket: Socket) {
       const code = await generateUniqueRoomCode();
 
       // get user name (token might include name)
-      const userDoc = await User.findById(user.id).select("name").lean();
-      const player = { userId: user.id, name: userDoc?.name || "Anonymous", joinedAt: new Date() };
+      const playerName = await resolveUserName(user.id, user.name);
+      const player = { userId: user.id, name: playerName, joinedAt: new Date() };
 
       const room = await new Room({
         code,
@@ -82,10 +82,13 @@ export function registerRoomHandlers(io: Server, socket: Socket) {
       const user = socket.data.user;
       if (!code) return ack?.({ ok: false, message: "Room code required" });
 
+      // resolver nombre si no viene en el token
+      const userName = await resolveUserName(user.id, user.name);
+
       // atomic add: reuse your service or perform findOneAndUpdate
       const updated = await Room.findOneAndUpdate(
         { code, "players.userId": { $ne: user.id }, $expr: { $lt: [{ $size: "$players" }, "$maxPlayers"] } },
-        { $push: { players: { userId: user.id, name: user.name, joinedAt: new Date() } } },
+        { $push: { players: { userId: user.id, name: userName, joinedAt: new Date() } } },
         { new: true }
       ).lean();
 
@@ -118,7 +121,7 @@ export function registerRoomHandlers(io: Server, socket: Socket) {
 
       io.to(code).emit("room:update", {
         event: "playerJoined",
-        player: { userId: user.id, name: user.name },
+        player: { userId: user.id, name: userName },
         players: updated.players.map((p:any) => ({ userId: p.userId.toString(), name: p.name, joinedAt: p.joinedAt })),
       });
 
@@ -137,7 +140,11 @@ export function registerRoomHandlers(io: Server, socket: Socket) {
       if (message.length > 400) return ack?.({ ok: false, message: "Message too long" });
 
       const user = socket.data.user;
-      const chatMsg = { userId: user.id, user: user.name, message, timestamp: new Date() };
+      if (!socket.data.resolvedUserName) {
+        socket.data.resolvedUserName = await resolveUserName(user.id, user.name);
+      }
+      const userName = socket.data.resolvedUserName;
+      const chatMsg = { userId: user.id, user: userName, message, timestamp: new Date() };
       await addChatMessage(code, chatMsg);
 
       io.to(code).emit("room:chat:new", chatMsg);

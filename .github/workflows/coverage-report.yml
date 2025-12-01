@@ -26,7 +26,7 @@ jobs:
         run: npm ci
 
       - name: Run tests and generate coverage
-        run: npm test -- --coverage
+        run: npm test
 
       - name: Upload coverage HTML artifact (for PR review)
         uses: actions/upload-artifact@v4

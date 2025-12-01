@@ -69,7 +69,3 @@ jobs:
             const body = `### CI Report\n- Lines coverage: ${cov}%\n- SonarCloud Quality Gate: OK\n\nIf you need details, open the SonarCloud project for the full report.`
             await github.rest.issues.createComment({owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number, body})
 
-      - name: SonarCloud Scan
-        uses: SonarSource/sonarcloud-github-action@master
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

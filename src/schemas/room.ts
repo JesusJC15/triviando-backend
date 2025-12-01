@@ -16,5 +16,5 @@ export const roomCodeParamSchema = z.object({
 
 export const chatSchema = z.object({
   code: z.string().min(1, { message: 'Room code required' }).regex(/^[A-Za-z0-9_]+$/, { message: 'Invalid room code' }),
-  message: z.string().min(1).max(400, { message: 'too long' }),
+  message: z.string().min(1).max(400, { message: 'Message exceeds maximum length of 400 characters' }),
 });

@@ -1,5 +1,5 @@
 import { Room } from "../models/room.model";
-import mongoose from "mongoose";
+// mongoose import removed — rely on Mongoose model casting for ObjectId
 
 interface JoinRoomResult {
   ok: boolean;
@@ -8,19 +8,18 @@ interface JoinRoomResult {
 }
 
 export async function joinRoomAtomically(roomCode: string, userId: string, userName: string): Promise<JoinRoomResult> {
-  const userObjectId = new mongoose.Types.ObjectId(userId);
 
   const updatedRoom = await Room.findOneAndUpdate(
     {
       code: roomCode,
       status: "waiting",
-      "players.userId": { $ne: userObjectId },
+      "players.userId": { $ne: userId },
       $expr: { $lt: [{ $size: "$players" }, "$maxPlayers"] },
     },
     {
       $push: {
         players: {
-          userId: userObjectId,
+          userId: userId,
           name: userName,
           joinedAt: new Date(),
         },

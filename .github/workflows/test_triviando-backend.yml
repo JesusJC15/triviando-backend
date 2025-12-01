@@ -1,4 +1,4 @@
-name: Build, Test, and Deploy TrivIAndo app to Azure Web App - triviando-backend
+name: Build, Test TrivIAndo app to Azure Web App - triviando-backend
 
 on:
   push:

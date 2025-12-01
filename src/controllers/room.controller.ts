@@ -2,7 +2,6 @@ import { Request, Response } from "express";
 import { Room, generateUniqueRoomCode } from "../models/room.model";
 import { Trivia } from "../models/trivia.model";
 import { generateQuestions } from "../services/aiGenerator.service";
-import { Types } from "mongoose";
 import redis from "../config/redis";
 import { joinRoomAtomically } from "../services/joinRoom.service";
 import { resolveUserName } from "../utils/userHelpers";
@@ -34,7 +33,7 @@ export const createRoom = async (req: Request, res: Response) => {
     const playerName = await resolveUserName(user.id, user.name);
 
     const player = {
-      userId: new Types.ObjectId(user.id),
+      userId: user.id,
       name: playerName,
       joinedAt: new Date(),
     };
@@ -116,19 +115,28 @@ export const joinRoom = async (req: Request, res: Response) => {
 export const getRoomState = async (req: Request, res: Response) => {
   try {
     const { code } = req.params;
-    if (!code?.trim()) return res.status(400).json({ message: "Código de sala requerido." });
+    if (!code || typeof code !== "string" || !code.trim()) {
+      return res.status(400).json({ message: "Código de sala requerido." });
+    }
 
-    const cached = await redis.get(`room:${code}:state`);
+    const sanitizedCode = code.trim();
+    // Enforce allowed characters to avoid query selector injection
+    const ROOM_CODE_REGEX = /^[A-Za-z0-9]{4,10}$/;
+    if (sanitizedCode.includes("$") || sanitizedCode.includes(".") || !ROOM_CODE_REGEX.test(sanitizedCode)) {
+      return res.status(400).json({ message: "Código de sala inválido." });
+    }
+
+    const cached = await redis.get(`room:${sanitizedCode}:state`);
     if (cached) {
       try {
         const room = JSON.parse(cached);
         return res.status(200).json({ source: "cache", room });
       } catch {
-        await redis.del(`room:${code}:state`);
+        await redis.del(`room:${sanitizedCode}:state`);
       }
     }
 
-    const room = await Room.findOne({ code })
+    const room = await Room.findOne({ code: sanitizedCode })
       .populate("players.userId", "name")
       .lean();
 
@@ -150,7 +158,7 @@ export const getRoomState = async (req: Request, res: Response) => {
       maxPlayers: room.maxPlayers,
       hostId: room.hostId,
     };
-    await redis.setex(`room:${code}:state`, ROOM_CACHE_TTL, JSON.stringify(cacheData));
+    await redis.setex(`room:${sanitizedCode}:state`, ROOM_CACHE_TTL, JSON.stringify(cacheData));
 
     return res.status(200).json({ source: "db", room: cacheData });
   } catch (error: any) {

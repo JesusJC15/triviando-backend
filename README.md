@@ -1,7 +1,7 @@
 # TrivIAndo — Backend
 
 ## Integrantes:
-
+- N
 
 [![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=Pokesaurios_triviando-backend&metric=alert_status&token=88e1d8129af6360bb8859bc4ca300010cb528328)](https://sonarcloud.io/summary/new_code?id=Pokesaurios_triviando-backend)
 

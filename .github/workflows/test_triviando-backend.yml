@@ -36,7 +36,7 @@ jobs:
 
       - name: Verify coverage ≥ 80%
         run: |
-          node -e "const fs=require('fs');const p='coverage/coverage-summary.json';if(!fs.existsSync(p)){console.error('coverage summary not found');process.exit(1);}const cov=JSON.parse(fs.readFileSync(p)).total.lines.pct;console.log('Lines coverage:',cov+'%');if(cov<80){console.error('Coverage threshold not met');process.exit(1);}"
+          node -e "const fs=require('fs');const p='coverage/coverage-summary.json';if(!fs.existsSync(p)){console.error('Coverage summary not found');process.exit(1);}const cov=JSON.parse(fs.readFileSync(p)).total.lines.pct;console.log('Lines coverage:',cov+'%');if(cov<80){console.error('Coverage threshold not met');process.exit(1);}"
 
   test:
     runs-on: ubuntu-latest

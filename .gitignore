@@ -142,3 +142,7 @@ vite.config.ts.timestamp-*
 
 # Env file
 .env
+
+# SonarQube files
+.sonarlint/
+.sonar/

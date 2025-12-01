@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import jwt, { JwtPayload } from "jsonwebtoken";
+import logger from "../utils/logger";
 
 export interface AuthRequest extends Request {
   user?: JwtPayload | string;
@@ -9,6 +10,7 @@ export const authMiddleware = (req: AuthRequest, res: Response, next: NextFuncti
   const authHeader = req.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    logger.warn({ ip: req.ip, path: req.originalUrl }, "Missing or malformed Authorization header");
     return res.status(401).json({ message: "Token not provided or invalid" });
   }
 
@@ -23,7 +25,8 @@ export const authMiddleware = (req: AuthRequest, res: Response, next: NextFuncti
     const decoded = jwt.verify(token, secret) as JwtPayload;
     req.user = decoded;
     next();
-  } catch {
+  } catch (err: any) {
+    logger.warn({ ip: req.ip, path: req.originalUrl, err: err?.message || err }, "Token verification failed");
     return res.status(401).json({ message: "Token invalid or expired" });
   }
 };

@@ -2,6 +2,7 @@ import redis from "../config/redis";
 import { Trivia } from "../models/trivia.model";
 import { GameState } from "../types/game.types";
 import { setNxPx } from "../utils/redisHelpers";
+import logger from "../utils/logger";
 
 const GAME_PREFIX = (code: string) => `room:${code}:game`;
 const FIRST_PRESS_KEY = (code: string) => `room:${code}:firstPress`;
@@ -49,23 +50,23 @@ export async function getGameState(code: string): Promise<GameState | null> {
     // Enhanced logging for debugging/monitoring: include truncated raw payload, length and increment a corruption counter in redis
     try {
       const snippet = raw.length > MAX_LOG_SNIPPET_LENGTH ? raw.slice(0, MAX_LOG_SNIPPET_LENGTH) + '...[truncated]' : raw;
-      console.error(`[game.service] Corrupted game state in redis for ${code}. raw.len=${raw.length} snippet=${snippet}`, e);
+      logger.error({ code, rawLen: raw.length, snippet, err: (e as any)?.message || e }, 'Corrupted game state in redis');
       // Increment a counter to surface repeated corruptions and set an expiry for the metric
       try {
         await redis.incr(`${GAME_PREFIX(code)}:corrupt_count`);
         await redis.expire(`${GAME_PREFIX(code)}:corrupt_count`, 60 * 60 * 24); // 1 day
       } catch (metricErr) {
-        console.warn(`[game.service] Failed to increment corrupt_count for ${code}:`, metricErr);
+        logger.warn({ code, err: (metricErr as any)?.message || metricErr }, 'Failed to increment corrupt_count for code');
       }
     } catch (logErr) {
-      console.error(`[game.service] Error while logging corrupted game state for ${code}:`, logErr);
+      logger.error({ code, err: (logErr as any)?.message || logErr }, 'Error while logging corrupted game state');
     }
 
     // clear corrupted state to avoid loops
     try {
       await redis.del(GAME_PREFIX(code));
     } catch (delErr) {
-      console.error(`[game.service] Failed to delete corrupted game state for ${code}:`, delErr);
+      logger.error({ code, err: (delErr as any)?.message || delErr }, 'Failed to delete corrupted game state');
     }
 
     return null;
@@ -91,7 +92,7 @@ export function scheduleTimer(key: string, fn: () => void, delayMs: number) {
     try {
       await fn();
     } catch (e) {
-      console.error("[scheduleTimer] error:", e);
+      logger.error({ err: (e as any)?.message || e, key }, 'scheduleTimer error');
     }
   }, delayMs);
   timersMap.set(key, t);

@@ -1,4 +1,5 @@
 import redis from "../config/redis";
+import logger from "./logger";
 
 /**
  * Set a key with NX and PX in a way that works for both ioredis and node-redis v4.
@@ -14,8 +15,8 @@ export async function setNxPx(key: string, value: string, px: number) {
       // node-redis v4 uses options object: set(key, value, { NX: true, PX: px })
       const res2 = await (redis as any).set(key, value, { NX: true, PX: px });
       return res2;
-    } catch (err2) {
-      console.error("[redisHelpers] setNxPx failed:", err2);
+    } catch (err2: any) {
+      logger.error({ err: err2?.message || err2, key }, "redisHelpers.setNxPx failed");
       throw err2;
     }
   }

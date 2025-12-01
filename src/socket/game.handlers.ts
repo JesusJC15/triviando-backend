@@ -19,6 +19,7 @@ import {
   ANSWER_TIMEOUT_MS,
 } from "../services/game.service";
 import { GameResult } from "../models/gameResult.model";
+import logger from "../utils/logger";
 
 export function registerGameHandlers(io: Server, socket: Socket) {
   // ------------- game:start -------------
@@ -29,8 +30,10 @@ export function registerGameHandlers(io: Server, socket: Socket) {
 
       const room = await Room.findOne({ code }).lean();
       if (!room) return ack?.({ ok: false, message: "Room not found" });
-      if (room.hostId.toString() !== user.id)
+      if (room.hostId.toString() !== user.id) {
+        logger.warn({ socketId: socket.id, code, userId: user.id }, "Unauthorized attempt to start game - not host");
         return ack?.({ ok: false, message: "Only host can start the game" });
+      }
 
       await Room.findOneAndUpdate({ code }, { status: "in-game" }).exec();
 
@@ -47,7 +50,7 @@ export function registerGameHandlers(io: Server, socket: Socket) {
 
       ack?.({ ok: true });
     } catch (err: any) {
-      console.error("[game:start]", err);
+      logger.error({ err: err?.message || err, socketId: socket.id, code }, "game:start error");
       ack?.({ ok: false, error: err.message });
     }
   });
@@ -66,8 +69,10 @@ export function registerGameHandlers(io: Server, socket: Socket) {
       if (!state) return ack?.({ ok: false, message: "No game state" });
       if (roundSequence !== state.roundSequence)
         return ack?.({ ok: false, message: "Stale round" });
-      if (state.blocked[user.id])
-        return ack?.({ ok: false, message: "Estás bloqueado para esta pregunta" });
+      if (state.blocked[user.id]) {
+        logger.warn({ socketId: socket.id, code, userId: user.id }, "Blocked user attempted button press");
+        return ack?.({ ok: false, code: 403, message: "Estás bloqueado para esta pregunta" });
+      }
 
       const claimed = await attemptFirstPress(code, user.id, PRESS_WINDOW_MS);
       if (!claimed)
@@ -114,7 +119,7 @@ export function registerGameHandlers(io: Server, socket: Socket) {
 
       ack?.({ ok: true, message: "You pressed first" });
     } catch (err: any) {
-      console.error("round:buttonPress", err);
+      logger.warn({ err: err?.message || err, socketId: socket.id, code }, "round:buttonPress error");
       ack?.({ ok: false, error: err.message });
     }
   });
@@ -131,7 +136,10 @@ export function registerGameHandlers(io: Server, socket: Socket) {
       if (!state || state.roundSequence !== roundSequence) return ack?.({ ok: false, message: "Round mismatch" });
 
       const first = await redis.get(`room:${code}:firstPress`);
-      if (first !== user.id) return ack?.({ ok: false, message: "No eres quien está respondiendo" });
+      if (first !== user.id) {
+        logger.warn({ socketId: socket.id, code, userId: user.id }, "Unauthorized answer attempt - not current responder");
+        return ack?.({ ok: false, code: 403, message: "No eres quien está respondiendo" });
+      }
 
       const trivia = await Trivia.findById(state.triviaId).lean();
       const q = trivia?.questions[state.currentQuestionIndex];
@@ -177,7 +185,7 @@ export function registerGameHandlers(io: Server, socket: Socket) {
         return ack?.({ ok: true, correct: false });
       }
     } catch (err: any) {
-      console.error("round:answer", err);
+      logger.warn({ err: err?.message || err, socketId: socket.id, code }, "round:answer error");
       ack?.({ ok: false, error: err.message });
     }
   });
@@ -335,12 +343,12 @@ export function registerGameHandlers(io: Server, socket: Socket) {
   async function endGame(code: string, ioInstance: Server) {
     const state = await getGameState(code);
     if (!state) {
-      console.warn(`[endGame] Estado no encontrado para la sala ${code}`);
+      logger.warn({ code }, "endGame: estado no encontrado para la sala");
       return;
     }
 
     if (!state.scores || !state.players) {
-      console.warn(`[endGame] Estado incompleto en la sala ${code}`);
+      logger.warn({ code }, "endGame: estado incompleto en la sala");
       return;
     }
 
@@ -392,7 +400,7 @@ export function registerGameHandlers(io: Server, socket: Socket) {
       });
 
     } catch (err) {
-      console.error("[endGame] Error al guardar resultado", err);
+      logger.error({ err: (err as any)?.message || err, code }, "endGame: error al guardar resultado");
     }
   }
 }

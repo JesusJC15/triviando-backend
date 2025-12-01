@@ -1,4 +1,5 @@
 import User from "../models/user.model";
+import logger from "./logger";
 
 /**
  * Resolves a user's display name.
@@ -16,8 +17,9 @@ export async function resolveUserName(userId: string, currentName?: string): Pro
   try {
     const user = await User.findById(userId).select("name").lean();
     return user?.name || "Anonymous";
-  } catch (error) {
-    console.error('[resolveUserName] Error fetching user:', error);
+  } catch (error: any) {
+    // Keep legacy console signature used in tests: (message, Error)
+    logger.error('[resolveUserName] Error fetching user:', error);
     return "Anonymous";
   }
 }

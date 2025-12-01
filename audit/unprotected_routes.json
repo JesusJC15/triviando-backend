@@ -10,20 +10,10 @@
       "method": "POST",
       "path": "/api/v1/auth/login"
     },
-    {
-      "file": "src/routes/gameResult.routes.ts",
-      "method": "GET",
-      "path": "/api/v1/game-results/"
-    },
-    {
-      "file": "src/routes/gameResult.routes.ts",
-      "method": "GET",
-      "path": "/api/v1/game-results/:code"
-    }
   ],
   "summary": {
     "total": 8,
-    "unprotected": 4
+    "unprotected": 2
   },
   "socketAuth": true
 }

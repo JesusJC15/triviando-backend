@@ -7,6 +7,7 @@ import redis from "../config/redis";
 import { getGameState } from "../services/game.service";
 import { resolveUserName } from "../utils/userHelpers";
 import { buildRoomCacheData } from "../utils/roomHelpers";
+import logger from "../utils/logger";
 
 const ROOM_CACHE_TTL = 120;
 
@@ -67,7 +68,7 @@ export function registerRoomHandlers(io: Server, socket: Socket) {
       io.to(code).emit("room:update", { event: "roomCreated", code, roomId: room._id });
 
     } catch (err: any) {
-      console.error("[room:create] error:", err);
+      logger.error({ err: err?.message || err, socketId: socket.id, topic }, "room:create error");
       ack?.({ ok: false, error: err.message });
     }
   });
@@ -98,7 +99,8 @@ export function registerRoomHandlers(io: Server, socket: Socket) {
           const chatHistory = await getChatHistory(code);
           return ack?.({ ok: true, room: { code, players: r.players, chatHistory } });
         }
-        return ack?.({ ok: false, message: "Room full or not found" });
+        logger.warn({ socketId: socket.id, code, userId: user.id }, "Attempt to join full or missing room");
+        return ack?.({ ok: false, code: 403, message: "Room full or not found" });
       }
 
       socket.join(code);
@@ -119,7 +121,7 @@ export function registerRoomHandlers(io: Server, socket: Socket) {
       ack?.({ ok: true, room: { code, players: updated.players.map((p:any) => ({ userId: p.userId.toString(), name: p.name, joinedAt: p.joinedAt })), chatHistory } });
 
     } catch (err: any) {
-      console.error("[room:join] error:", err);
+      logger.error({ err: err?.message || err, socketId: socket.id, code: typeof code === 'string' ? code : 'unknown' }, "room:join error");
       ack?.({ ok: false, error: err.message });
     }
   });
@@ -141,7 +143,7 @@ export function registerRoomHandlers(io: Server, socket: Socket) {
       io.to(code).emit("room:chat:new", chatMsg);
       ack?.({ ok: true });
     } catch (err: any) {
-      console.error("[room:chat] error:", err);
+      logger.warn({ err: err?.message || err, socketId: socket.id, code }, "room:chat error");
       ack?.({ ok: false, error: err.message });
     }
   });
@@ -163,7 +165,7 @@ export function registerRoomHandlers(io: Server, socket: Socket) {
 
       ack?.({ ok: true, room: { code, players: room.players.map((p:any)=>({ userId: p.userId.toString(), name: p.name, joinedAt: p.joinedAt })), chatHistory, gameState } });
     } catch (err:any) {
-      console.error("[room:reconnect]", err);
+      logger.error({ err: err?.message || err, socketId: socket.id, code }, "room:reconnect error");
       ack?.({ ok: false, error: err.message });
     }
   });

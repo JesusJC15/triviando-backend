@@ -146,3 +146,6 @@ vite.config.ts.timestamp-*
 # SonarQube files
 .sonarlint/
 .sonar/
+
+# VSCode
+.vscode/

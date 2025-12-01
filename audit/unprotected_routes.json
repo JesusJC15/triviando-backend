@@ -1,0 +1,19 @@
+{
+  "unprotected": [
+    {
+      "file": "src/routes/auth.routes.ts",
+      "method": "POST",
+      "path": "/api/v1/auth/register"
+    },
+    {
+      "file": "src/routes/auth.routes.ts",
+      "method": "POST",
+      "path": "/api/v1/auth/login"
+    },
+  ],
+  "summary": {
+    "total": 8,
+    "unprotected": 2
+  },
+  "socketAuth": true
+}

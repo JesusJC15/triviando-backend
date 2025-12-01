@@ -2,6 +2,7 @@ import swaggerUi from "swagger-ui-express";
 import YAML from "yamljs";
 import path from "path";
 import { Express } from "express";
+import logger from "../utils/logger";
 
 export const setupSwagger = (app: Express) => {
   const swaggerPath = path.join(__dirname, "../docs/openapi.yaml");
@@ -9,5 +10,5 @@ export const setupSwagger = (app: Express) => {
 
   app.use("/api/v1/docs", swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 
-  console.log("📚 Swagger disponible en: http://localhost:4000/api/v1/docs");
+  logger.info("Swagger available at /api/v1/docs");
 };

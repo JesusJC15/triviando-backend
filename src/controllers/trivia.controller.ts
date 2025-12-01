@@ -2,6 +2,7 @@ import { Response } from "express";
 import { Trivia } from "../models/trivia.model";
 import { generateQuestions } from "../services/aiGenerator.service";
 import { AuthRequest } from "../middleware/auth.middleware";
+import logger from "../utils/logger";
 
 const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
 
@@ -25,9 +26,9 @@ export const generateTrivia = async (req: AuthRequest, res: Response) => {
       try {
         questions = await generateQuestions(topic, quantity);
         break;
-      } catch (err) {
+      } catch (err: any) {
         attempts++;
-        console.warn(`Intento ${attempts} fallido:`, err);
+        logger.warn({ attempt: attempts, err: err?.message || err, topic }, `Intento ${attempts} fallido`);
         if (attempts < maxRetries) {
           await delay(1000 * attempts);
         } else {
@@ -51,7 +52,7 @@ export const generateTrivia = async (req: AuthRequest, res: Response) => {
       preview: trivia.questions.slice(0, 3),
     });
   } catch (error: any) {
-    console.error("Error generating trivia:", error);
+    logger.error({ err: error?.message || error, topic: req.body?.topic }, "Error generating trivia");
     return res.status(500).json({
       message: "Error al generar la trivia. Intenta nuevamente más tarde.",
       error: error.message,

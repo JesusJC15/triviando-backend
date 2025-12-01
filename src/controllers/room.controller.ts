@@ -6,13 +6,17 @@ import redis from "../config/redis";
 import { joinRoomAtomically } from "../services/joinRoom.service";
 import { resolveUserName } from "../utils/userHelpers";
 import { buildRoomCacheData, buildSanitizedRoom } from "../utils/roomHelpers";
+import logger from "../utils/logger";
+import { unauthorized, forbidden } from "../utils/responses";
 
 const ROOM_CACHE_TTL = 120;
 
 export const createRoom = async (req: Request, res: Response) => {
   try {
     const user = (req as any).user;
-    if (!user?.id) return res.status(401).json({ message: "Unauthorized" });
+    if (!user?.id) {
+      return res.status(401).json({ message: "No autorizado. Debes iniciar sesión para crear una sala." });
+    }
 
     const { topic, maxPlayers = 4, quantity = 5 } = req.body;
 
@@ -58,7 +62,7 @@ export const createRoom = async (req: Request, res: Response) => {
       host: player.name,
     });
   } catch (error: any) {
-    console.error("[createRoom] Error:", error);
+    logger.error({ err: error?.message || error, body: req.body }, "createRoom error");
     return res.status(500).json({
       message: "Error creando la sala",
       error: error.message,
@@ -71,7 +75,7 @@ export const joinRoom = async (req: Request, res: Response) => {
     const user = (req as any).user;
     const { code } = req.body;
 
-    if (!user?.id) return res.status(401).json({ message: "Unauthorized" });
+    if (!user?.id) return unauthorized(res, "Unauthorized");
     if (!code?.trim()) return res.status(400).json({ message: "Código de sala requerido." });
 
     // A veces el payload del token no incluye el nombre; obtenerlo de la BD si falta
@@ -86,7 +90,7 @@ export const joinRoom = async (req: Request, res: Response) => {
     const sanitizedRoom = buildSanitizedRoom(room);
     return res.status(200).json({ message, room: sanitizedRoom });
   } catch (error: any) {
-    console.error("[joinRoom] Error:", error);
+    logger.error({ err: error?.message || error, body: req.body, code: req.body?.code }, "joinRoom error");
     return res.status(500).json({
       message: "Error al unirse a la sala",
       error: error.message,
@@ -97,6 +101,7 @@ export const joinRoom = async (req: Request, res: Response) => {
 export const getRoomState = async (req: Request, res: Response) => {
   try {
     const { code } = req.params;
+    const user = (req as any).user;
     if (!code || typeof code !== "string" || !code.trim()) {
       return res.status(400).json({ message: "Código de sala requerido." });
     }
@@ -112,6 +117,16 @@ export const getRoomState = async (req: Request, res: Response) => {
     if (cached) {
       try {
         const room = JSON.parse(cached);
+        // If user present, enforce Authorization: only host or players can view detailed room state
+        const userId = user?.id;
+        if (userId) {
+          const isHost = room.hostId && (room.hostId.toString ? room.hostId.toString() : room.hostId) === userId;
+          const isPlayer = Array.isArray(room.players) && room.players.some((p: any) => (p.userId?.toString?.() || p.userId) === userId);
+          if (!isHost && !isPlayer) {
+            logger.warn({ ip: req.ip, path: req.originalUrl, userId, code: sanitizedCode }, "Unauthorized access to room state");
+            return forbidden(res, "Forbidden");
+          }
+        }
         return res.status(200).json({ source: "cache", room });
       } catch {
         await redis.del(`room:${sanitizedCode}:state`);
@@ -123,6 +138,17 @@ export const getRoomState = async (req: Request, res: Response) => {
       .lean();
 
     if (!room) return res.status(404).json({ message: "Sala no encontrada." });
+
+    // If user present, enforce Authorization: only host or players can view detailed room state
+    const userId = user?.id;
+    if (userId) {
+      const isHost = room.hostId && (room.hostId.toString ? room.hostId.toString() : room.hostId) === userId;
+      const isPlayer = Array.isArray(room.players) && room.players.some((p: any) => (p.userId?._id?.toString?.() || p.userId?.toString?.() || p.userId) === userId);
+      if (!isHost && !isPlayer) {
+        logger.warn({ ip: req.ip, path: req.originalUrl, userId, code: sanitizedCode }, "Unauthorized access to room state");
+        return forbidden(res, "Forbidden");
+      }
+    }
 
     const safePlayers = room.players.map((p: any) => ({
       userId:
@@ -139,7 +165,7 @@ export const getRoomState = async (req: Request, res: Response) => {
 
     return res.status(200).json({ source: "db", room: cacheData });
   } catch (error: any) {
-    console.error("[getRoomState] Error:", error);
+    logger.error({ err: error?.message || error, params: req.params }, "getRoomState error");
     return res.status(500).json({
       message: "Error obteniendo estado de la sala",
       error: error.message,

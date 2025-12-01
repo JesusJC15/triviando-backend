@@ -9,7 +9,7 @@ const appFile = path.join(srcDir, 'app.ts');
 function readFile(p) {
   try {
     return fs.readFileSync(p, 'utf8');
-  } catch (e) {
+  } catch {
     return null;
   }
 }
@@ -45,11 +45,35 @@ function scanRouteFile(filePath) {
 
   const routes = [];
   // match router.METHOD("/path", ...args)
-  const routeRe = /router\.(get|post|put|delete|patch)\s*\(\s*([`'"](.*?)['"`])\s*,?([\s\S]*?)\);/g;
+  // The `routeRe` is declared in module scope (below) and uses a backreference
+  // for the opening/closing quote plus a tempered token for the internal
+  // content so it avoids catastrophic backtracking.
   let m;
   while ((m = routeRe.exec(content))) {
     const method = m[1].toUpperCase();
-    const pathText = m[3];
+    // Raw captured value (content between the quotes)
+    const rawPath = m[3];
+    // Unescape common JS string escapes so callers get a "clean" path.
+    // Handle unicode/hex escapes first, then common single-character escapes.
+    const pathText = rawPath
+      .replace(/\\u([0-9a-fA-F]{4})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+      .replace(/\\x([0-9a-fA-F]{2})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+      .replace(/\\(["'`\\/bfnrtv])/g, (_, esc) => {
+        const map = {
+          'b': '\b',
+          'f': '\f',
+          'n': '\n',
+          'r': '\r',
+          't': '\t',
+          'v': '\v',
+          '"': '"',
+          "'": "'",
+          '`': '`',
+          '\\': '\\',
+          '/': '/'
+        };
+        return map.hasOwnProperty(esc) ? map[esc] : esc;
+      });
     const rest = m[4] || '';
     const usesAuth = /authMiddleware/.test(rest);
     routes.push({ method, path: pathText, protected: usesAuth });
@@ -57,6 +81,9 @@ function scanRouteFile(filePath) {
 
   return routes;
 }
+
+// Exported for unit testing the regex behavior and for reuse.
+const routeRe = /router\.(get|post|put|delete|patch)\s*\(\s*([`'\"])((?:\\.|(?!\2).)*)\2\s*,?([\s\S]*?)\);/g;
 
 function main() {
   const { imports, mounts } = parseAppMappings();
@@ -102,3 +129,11 @@ function main() {
 }
 
 if (require.main === module) main();
+
+// Export helpers for unit tests and reuse. Use named exports on `exports` so
+// the module is easier to consume from CommonJS and aligns better with
+// TypeScript/ESM-style named exports.
+exports.parseAppMappings = parseAppMappings;
+exports.scanRouteFile = scanRouteFile;
+exports.routeRe = routeRe;
+exports.main = main;

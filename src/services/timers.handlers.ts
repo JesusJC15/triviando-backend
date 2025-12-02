@@ -222,3 +222,6 @@ async function endGame(io: Server, code: string) {
 
   io.to(code).emit("game:finished", { scores: state.scores, winner });
 }
+
+// Export internals for testing
+export { startRound, handleNoPresses, endGame, startRoundOpenButtonAgain };

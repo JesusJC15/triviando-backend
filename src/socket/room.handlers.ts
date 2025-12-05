@@ -9,6 +9,7 @@ import { resolveUserName } from "../utils/userHelpers";
 import { buildRoomCacheData } from "../utils/roomHelpers";
 import logger from "../utils/logger";
 import { socketValidator } from "./validateSocket";
+import { randomUUID } from "crypto";
 import { joinRoomSchema, createRoomSchema, chatSchema, roomCodeParamSchema } from "../schemas/room";
 
 const ROOM_CACHE_TTL = 120;
@@ -63,6 +64,11 @@ export function registerRoomHandlers(io: Server, socket: Socket) {
             chatHistory: [],
           },
         });
+
+        // Also emit chat history event directly for clients that don't use ack callbacks
+        try {
+          socket.emit("room:chat:history", []);
+        } catch (e) {}
 
         // broadcast room created
         io.to(code).emit("room:update", { event: "roomCreated", code, roomId: room._id });
@@ -121,6 +127,9 @@ export function registerRoomHandlers(io: Server, socket: Socket) {
         });
 
         ack?.({ ok: true, room: { code, players: updated.players.map((p: any) => ({ userId: p.userId.toString(), name: p.name, joinedAt: p.joinedAt })), chatHistory } });
+        try {
+          socket.emit("room:chat:history", chatHistory);
+        } catch (e) {}
 
       } catch (err: any) {
         logger.error({ err: err?.message || err, socketId: socket.id, code: typeof code === 'string' ? code : 'unknown' }, "room:join error");
@@ -139,7 +148,7 @@ export function registerRoomHandlers(io: Server, socket: Socket) {
           socket.data.resolvedUserName = await resolveUserName(user.id, user.name);
         }
         const userName = socket.data.resolvedUserName;
-        const chatMsg = { userId: user.id, user: userName, message, timestamp: new Date() };
+        const chatMsg = { id: randomUUID(), userId: user.id, user: userName, message, timestamp: new Date().toISOString() };
         await addChatMessage(code, chatMsg);
 
         io.to(code).emit("room:chat:new", chatMsg);
@@ -168,6 +177,9 @@ export function registerRoomHandlers(io: Server, socket: Socket) {
         const gameState = await getGameState(code);
 
         ack?.({ ok: true, room: { code, players: room.players.map((p: any) => ({ userId: p.userId.toString(), name: p.name, joinedAt: p.joinedAt })), chatHistory, gameState } });
+        try {
+          socket.emit("room:chat:history", chatHistory);
+        } catch (e) {}
       } catch (err: any) {
         logger.error({ err: err?.message || err, socketId: socket.id, code }, "room:reconnect error");
         ack?.({ ok: false, error: err.message });
@@ -181,7 +193,17 @@ export function registerRoomHandlers(io: Server, socket: Socket) {
   socket.on("disconnect", async () => {
     if (!currentRoom) return;
     const user = socket.data.user;
-    io.to(currentRoom).emit("room:update", { event: "playerLeft", userId: user.id });
+    try {
+      // fetchSockets allows checking other sockets in the room across clustered nodes
+      const socketsInRoom = await io.in(currentRoom).fetchSockets();
+      const stillConnected = socketsInRoom.some((s) => s.id !== socket.id && s.data?.user?.id === user.id);
+      if (!stillConnected) {
+        io.to(currentRoom).emit("room:update", { event: "playerLeft", userId: user.id });
+      }
+    } catch (err) {
+      // If fetchSockets not available or errors, fallback to previous behavior
+      io.to(currentRoom).emit("room:update", { event: "playerLeft", userId: user.id });
+    }
   });
 
 }

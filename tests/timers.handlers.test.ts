@@ -151,6 +151,7 @@ describe('timers.handlers', () => {
       triviaId: 't1',
       players: [{ userId: 'u1', name: 'Solo' }],
       roundSequence: 2,
+      status: 'answering',
       currentQuestionIndex: 0,
       scores: { u1: 0 },
     });

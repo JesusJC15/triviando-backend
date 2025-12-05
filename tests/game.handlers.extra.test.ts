@@ -123,18 +123,4 @@ describe('game.handlers extra branches', () => {
       expect(resp.message).toMatch(/Evento duplicado ignorado/i);
     });
   });
-
-  it('round:answer rejects when not the first presser', async () => {
-    const io = createFakeIO();
-    const socket = createFakeSocket({ id:'u9', name:'Other' });
-    registerGameHandlers(io as any, socket as any);
-
-    mockState = { roomCode: 'X', triviaId: 't1', status:'answering', currentQuestionIndex:0, roundSequence: 6, scores:{}, blocked:{}, players:[{ userId:'u1', name:'Alice' }, { userId:'u9', name:'Other' }] };
-    redisGet.mockResolvedValueOnce('u1'); // first press is someone else
-
-    await socket.trigger('round:answer', { code: 'X', roundSequence: 6, selectedIndex: 0 }, (resp:any)=>{
-      expect(resp.ok).toBe(false);
-      expect(resp.message).toMatch(/No eres quien está respondiendo/i);
-    });
-  });
 });

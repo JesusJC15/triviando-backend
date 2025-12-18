@@ -2514,11 +2514,10 @@ Este proyecto fue inspirado por:
 
 ### Equipo de Desarrollo
 - **Jesús Alberto Jauregui Conde** - [GitHub](https://github.com/JesusJC15)
-- **Natalia Espitia Espinel** - Desarrollo Full Stack
-- **Mayerlly Suárez Correa** - Backend & DevOps
+- **Natalia Espitia Espinel** - [GitHub](https://github.com/Natalia-Espitia)
+- **Mayerlly Suárez Correa** - [GitHub](https://github.com/mayerllyyo)
 
 ### Documentación Adicional
-- 📄 [PROFILE.md](./PROFILE.md) - Portafolio y resumen de habilidades
 - 📊 [SonarCloud Project](https://sonarcloud.io/summary/new_code?id=Pokesaurios_triviando-backend)
 - 🚀 [Azure Web App](https://triviando-backend.azurewebsites.net)
 
@@ -2528,7 +2527,7 @@ Este proyecto fue inspirado por:
 
 ### Contexto Académico
 
-**TrivIAndo Backend** fue desarrollado como proyecto final para la asignatura de Arquitectura de Software (ARSW) en 2024. El proyecto demuestra la aplicación práctica de:
+**TrivIAndo Backend** fue desarrollado como proyecto final para la asignatura de Arquitectura de Software (ARSW) en 2025. El proyecto demuestra la aplicación práctica de:
 
 - ✅ Patrones de arquitectura (MVC, Repository, Service Layer)
 - ✅ Comunicación en tiempo real con WebSockets

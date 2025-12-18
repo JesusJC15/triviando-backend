@@ -11,6 +11,8 @@
 
 Backend del servidor de TrivIAndo: una aplicación en TypeScript que expone una API REST y WebSockets (Socket.IO) para jugar trivias en tiempo real, almacenar resultados y aprovechar generación de contenido con AI.
 
+> 📄 **Looking for a GitHub profile summary?** Check out [PROFILE.md](./PROFILE.md) for a comprehensive skills and project showcase based on this project!
+
 ## Contenido
 
 - Visión general
